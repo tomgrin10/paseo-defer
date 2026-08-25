@@ -1,5 +1,7 @@
 # paseo-defer
 
+[![Release](https://img.shields.io/github/v/release/tomgrin10/paseo-defer?display_name=tag&sort=semver&style=for-the-badge&label=release&color=6366f1)](https://github.com/tomgrin10/paseo-defer/releases/latest)
+
 A trusted local [Paseo](https://paseo.sh) plugin for queuing a message to an agent and delivering it later.
 
 Messages can be deferred until:
@@ -14,10 +16,22 @@ When a message becomes due, paseo-defer waits for the target agent to become idl
 
 Paseo's plugin API is experimental. This plugin uses an internal Paseo client API to read provider usage windows, so a future Paseo release may require an update.
 
+### Curl
+
+Install the pinned `v0.1.0` release into `~/.local/share/paseo-defer`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tomgrin10/paseo-defer/v0.1.0/install.sh | sh
+```
+
+The installer downloads the tagged source, installs dependencies, runs the verification suite, and registers the plugin with Paseo. It refuses to overwrite an existing installation. Set `PASEO_DEFER_DIR` to choose another destination.
+
+### Git
+
 ```bash
 git clone https://github.com/tomgrin10/paseo-defer.git
 cd paseo-defer
-npm install
+npm ci
 npm run verify
 paseo plugin install "$PWD"
 paseo plugin ls

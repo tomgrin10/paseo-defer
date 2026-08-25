@@ -1,7 +1,7 @@
 {
   "name": "paseo-defer",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Defer messages to Paseo coding agents until a chosen time or usage-window reset.",
   "repository": {
     "type": "git",
