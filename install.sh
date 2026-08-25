@@ -2,7 +2,7 @@
 set -eu
 
 repository="tomgrin10/paseo-defer"
-version="${PASEO_DEFER_VERSION:-v0.1.0}"
+version="${PASEO_DEFER_VERSION:-v0.2.0}"
 default_data_home="${XDG_DATA_HOME:-${HOME:?HOME must be set}/.local/share}"
 install_dir="${PASEO_DEFER_DIR:-${default_data_home}/paseo-defer}"
 
@@ -17,7 +17,7 @@ done
 
 case "$version" in
   v[0-9]*) ;;
-  *) fail "PASEO_DEFER_VERSION must be a tag such as v0.1.0" ;;
+  *) fail "PASEO_DEFER_VERSION must be a tag such as v0.2.0" ;;
 esac
 
 case "$install_dir" in

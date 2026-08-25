@@ -24,10 +24,10 @@ Requires Paseo 0.5.1 or newer with plugins enabled. Paseo's plugin API is experi
 
 ### Curl
 
-Install the pinned `v0.1.0` release into `~/.local/share/paseo-defer`:
+Install the pinned `v0.2.0` release into `~/.local/share/paseo-defer`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tomgrin10/paseo-defer/v0.1.0/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tomgrin10/paseo-defer/v0.2.0/install.sh | sh
 ```
 
 The installer downloads the tagged source, installs dependencies, runs the verification suite, and registers the plugin with Paseo. It refuses to overwrite an existing installation. Set `PASEO_DEFER_DIR` to choose another destination.
