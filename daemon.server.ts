@@ -72,6 +72,62 @@ export async function readAgentStates(client: DaemonClient): Promise<Map<string,
   return states;
 }
 
+export interface SessionRow {
+  id: string;
+  title: string | null;
+  provider: string;
+  /** Daemon status string; kept loose because the daemon may add states. */
+  status: string;
+  /** "project / workspace", so a picker can tell two same-titled sessions apart. */
+  workspaceLabel: string | null;
+  lastActivityAt: string | null;
+}
+
+function instant(value: string | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** Live sessions a message could be deferred to, most recently active first. */
+export async function readSessions(client: DaemonClient): Promise<SessionRow[]> {
+  const payload = await client.fetchAgents();
+  const rows: SessionRow[] = [];
+  for (const entry of payload.entries ?? []) {
+    const agent = entry.agent;
+    if (!agent?.id || agent.status === "closed") continue;
+    const place = entry.project;
+    const label = [place?.projectName, place?.workspaceName]
+      .filter((part): part is string => typeof part === "string" && part !== "")
+      .join(" / ");
+    rows.push({
+      id: agent.id,
+      title: agent.title ?? null,
+      provider: agent.provider,
+      status: agent.status,
+      workspaceLabel: label === "" ? null : label,
+      lastActivityAt: agent.lastUserMessageAt ?? agent.updatedAt ?? null,
+    });
+  }
+  rows.sort((a, b) => instant(b.lastActivityAt) - instant(a.lastActivityAt));
+  return rows;
+}
+
+const SESSIONS_TTL_MS = 5_000;
+let sessionsCache: { at: number; rows: SessionRow[] } | null = null;
+
+/**
+ * Same list, cached briefly: the picker and the overview both poll, and each
+ * miss costs a fresh daemon connection.
+ */
+export async function fetchSessions(): Promise<SessionRow[]> {
+  const now = Date.now();
+  if (sessionsCache !== null && now - sessionsCache.at < SESSIONS_TTL_MS) return sessionsCache.rows;
+  const rows = await withDaemon(readSessions);
+  sessionsCache = { at: Date.now(), rows };
+  return rows;
+}
+
 const USAGE_TTL_MS = 60_000;
 let usageCache: { at: number; resetsAt: string | null } | null = null;
 
@@ -111,6 +167,7 @@ export async function readSessionResetsAt(
   return resetsAt;
 }
 
-export function clearUsageCache(): void {
+export function clearCaches(): void {
   usageCache = null;
+  sessionsCache = null;
 }

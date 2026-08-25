@@ -6,6 +6,8 @@
 
 A trusted local [Paseo](https://paseo.sh) plugin for queuing a message to an agent and delivering it later.
 
+![The Defer panel: naming the target session, typing a message, choosing a delay, and the queued message waiting with edit and cancel controls](docs/defer-panel.gif)
+
 Messages can be deferred until:
 
 - a relative delay has elapsed;
@@ -13,6 +15,8 @@ Messages can be deferred until:
 - the Claude rolling usage window resets.
 
 When a message becomes due, paseo-defer waits for the target agent to become idle so it arrives as a new message instead of steering an active turn. The queue persists across plugin reloads and Paseo restarts.
+
+The **Defer** panel names the session it is queueing for — title, workspace, provider, status, and session id — and a waiting message can still be edited (text, timing, or both) until delivery starts. The **Deferred** sidebar surface does the same across every session, with a picker for choosing the target.
 
 ## Install
 
@@ -40,6 +44,8 @@ paseo plugin ls
 ```
 
 If plugins are disabled, enable them in **Settings → Plugins** before installing. Open an agent, press **⌘K** on macOS or **Ctrl+K** on Windows/Linux, and choose **Defer a message**.
+
+Paseo only offers agent-context commands while the focused tab is a live session, so a new tab that has not started its agent yet shows **Defer a message to a session** instead — it opens the **Deferred** surface, where the target session is picked explicitly.
 
 After editing the source:
 

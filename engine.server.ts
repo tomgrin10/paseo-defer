@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { store } from "./store.server";
 import {
-  clearUsageCache,
+  clearCaches,
   fetchSessionResetsAt,
   readAgentStates,
   withDaemon,
@@ -109,9 +109,11 @@ async function deliver(due: Deferred[]): Promise<void> {
       if (state !== "idle") continue;
 
       // Mark before sending so a crash cannot silently re-send the same text.
-      await store.update(item.id, { state: "sending" });
+      // The claim also returns the freshest row, so an edit that landed after
+      // this tick read the queue still wins.
+      const claimed = await store.update(item.id, { state: "sending" });
       try {
-        await client.sendMessage(item.agentId, item.text);
+        await client.sendMessage(item.agentId, claimed?.text ?? item.text);
         await store.update(item.id, {
           state: "sent",
           settledAt: new Date().toISOString(),
@@ -179,7 +181,7 @@ function startEngine(): void {
   lifecycle.teardown = () => {
     stopped = true;
     clearInterval(timer);
-    clearUsageCache();
+    clearCaches();
   };
 }
 

@@ -1,9 +1,17 @@
 import type { PluginContext } from "@getpaseo/plugin";
-import { cancelDeferred, clearSettled, createDeferred, listDeferred } from "./defer.shared";
+import {
+  cancelDeferred,
+  clearSettled,
+  createDeferred,
+  listDeferred,
+  listSessions,
+  updateDeferred,
+  type Deferred,
+} from "./defer.shared";
 import { DeferPanel } from "./panel.client";
 import { DeferOverview } from "./surface.client";
 import { createDeferredRecord, resolveDueAt } from "./engine.server";
-import { fetchSessionResetsAt } from "./daemon.server";
+import { fetchSessionResetsAt, fetchSessions } from "./daemon.server";
 import { store } from "./store.server";
 import { lifecycle } from "./lifecycle.shared";
 
@@ -23,12 +31,35 @@ export default function contribute(plugin: PluginContext) {
     return { items, sessionResetsAt, usageError };
   });
 
+  plugin.handle(listSessions, async () => ({ sessions: await fetchSessions() }));
+
   plugin.handle(createDeferred, async ({ agentId, text, trigger }) => {
     const createdAt = new Date().toISOString();
     const { dueAt, anchorResetsAt } = await resolveDueAt(trigger, createdAt);
     const item = await store.add(createDeferredRecord({ agentId, text, trigger, dueAt, anchorResetsAt }));
     console.log(`[defer] queued ${item.id} for ${agentId} (${trigger.kind})`);
     return { item };
+  });
+
+  plugin.handle(updateDeferred, async ({ id, text, trigger }) => {
+    const patch: Partial<Deferred> = {};
+    if (text !== undefined) patch.text = text;
+    if (trigger !== undefined) {
+      // A changed trigger is re-anchored from now, so "in 15m" means 15m from
+      // the edit rather than from the original queueing.
+      const editedAt = new Date().toISOString();
+      const { dueAt, anchorResetsAt } = await resolveDueAt(trigger, editedAt);
+      patch.trigger = trigger;
+      patch.dueAt = dueAt;
+      patch.anchorResetsAt = anchorResetsAt;
+    }
+    const { item, reason } = await store.updatePending(id, patch);
+    if (reason === "missing") return { item: null, error: "That message is no longer queued." };
+    if (reason === "settled") {
+      return { item: null, error: "That message is already on its way; it can no longer be edited." };
+    }
+    console.log(`[defer] edited ${id}`);
+    return { item, error: null };
   });
 
   plugin.handle(cancelDeferred, async ({ id }) => {
@@ -59,6 +90,20 @@ export default function contribute(plugin: PluginContext) {
     context: "agent",
     onSelect({ openPanel }) {
       openPanel("defer");
+    },
+  });
+
+  // Paseo hides agent-context items unless the focused tab is a live session, so
+  // a brand-new (still draft) tab has no Defer entry at all. This one always
+  // resolves, and its surface picks the target session explicitly.
+  plugin.addCommandCenterItem({
+    id: "defer-message-to-session",
+    title: "Defer a message to a session",
+    icon: "Clock",
+    keywords: ["later", "delay", "queue", "schedule", "snooze", "session"],
+    context: "global",
+    onSelect({ openSurface }) {
+      openSurface("overview");
     },
   });
 

@@ -1,4 +1,4 @@
-import type { Deferred } from "./defer.shared";
+import type { Deferred, Trigger } from "./defer.shared";
 
 /** "in 12m", "in 3h 5m", "now", or "2m ago" for an absolute instant. */
 export function formatRelative(iso: string | null, from: number = Date.now()): string {
@@ -51,6 +51,19 @@ export function describeTrigger(item: Deferred): string {
         ? "on session reset"
         : `session reset · ${formatRelative(item.anchorResetsAt)}`;
   }
+}
+
+/**
+ * Whether `next` would deliver at the same moment the item already targets.
+ * Editing text alone must not silently restart a relative countdown, so the
+ * panel only sends a trigger when this is false.
+ */
+export function triggersMatch(next: Trigger, item: Deferred): boolean {
+  if (next.kind !== item.trigger.kind) return false;
+  if (next.kind === "after" && item.trigger.kind === "after") return next.ms === item.trigger.ms;
+  // Clock entry only carries hours and minutes, so compare at that resolution.
+  if (next.kind === "at") return item.dueAt !== null && formatClock(next.iso) === formatClock(item.dueAt);
+  return true;
 }
 
 export function stateLabel(item: Deferred): string {

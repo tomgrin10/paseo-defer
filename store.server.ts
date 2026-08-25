@@ -77,6 +77,26 @@ export const store = {
       return updated;
     }),
 
+  /**
+   * Applies `patch` only while the item is still waiting. Once the engine has
+   * picked an item up, editing it could change the text mid-send or resurrect a
+   * settled row, so those are refused instead.
+   */
+  updatePending: (
+    id: string,
+    patch: Partial<Deferred>,
+  ): Promise<{ item: Deferred | null; reason: "missing" | "settled" | null }> =>
+    serialize(async () => {
+      const items = await readAll();
+      const index = items.findIndex((entry) => entry.id === id);
+      if (index === -1) return { item: null, reason: "missing" };
+      if (items[index].state !== "pending") return { item: null, reason: "settled" };
+      const updated = { ...items[index], ...patch } satisfies Deferred;
+      items[index] = updated;
+      await writeAll(items);
+      return { item: updated, reason: null };
+    }),
+
   removeSettled: (agentId?: string): Promise<number> =>
     serialize(async () => {
       const items = await readAll();

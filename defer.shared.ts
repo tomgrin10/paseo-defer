@@ -31,6 +31,23 @@ export const DeferredSchema = z.object({
 });
 export type Deferred = z.infer<typeof DeferredSchema>;
 
+/** A session a message can be deferred to, as shown in the picker. */
+export const SessionSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  provider: z.string(),
+  status: z.string(),
+  workspaceLabel: z.string().nullable(),
+  lastActivityAt: z.string().nullable(),
+});
+export type Session = z.infer<typeof SessionSchema>;
+
+export const listSessions = defineRpc({
+  name: "defer.sessions",
+  input: z.object({}),
+  output: z.object({ sessions: z.array(SessionSchema) }),
+});
+
 export const listDeferred = defineRpc({
   name: "defer.list",
   input: z.object({ agentId: z.string().optional() }),
@@ -50,6 +67,17 @@ export const createDeferred = defineRpc({
     trigger: TriggerSchema,
   }),
   output: z.object({ item: DeferredSchema }),
+});
+
+export const updateDeferred = defineRpc({
+  name: "defer.update",
+  input: z.object({
+    id: z.string(),
+    text: z.string().min(1).optional(),
+    /** Omit to keep the existing timing; sending one re-anchors relative triggers. */
+    trigger: TriggerSchema.optional(),
+  }),
+  output: z.object({ item: DeferredSchema.nullable(), error: z.string().nullable() }),
 });
 
 export const cancelDeferred = defineRpc({
