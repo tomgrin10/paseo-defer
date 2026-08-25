@@ -1,6 +1,8 @@
 # paseo-defer
 
+[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.5.1-8A63D2?style=for-the-badge)](https://paseo.sh)
 [![Release](https://img.shields.io/github/v/release/tomgrin10/paseo-defer?display_name=tag&sort=semver&style=for-the-badge&label=release&color=6366f1)](https://github.com/tomgrin10/paseo-defer/releases/latest)
+[![License](https://img.shields.io/github/license/tomgrin10/paseo-defer?style=for-the-badge&color=2563eb)](LICENSE)
 
 A trusted local [Paseo](https://paseo.sh) plugin for queuing a message to an agent and delivering it later.
 
@@ -14,7 +16,7 @@ When a message becomes due, paseo-defer waits for the target agent to become idl
 
 ## Install
 
-Paseo's plugin API is experimental. This plugin uses an internal Paseo client API to read provider usage windows, so a future Paseo release may require an update.
+Requires Paseo 0.5.1 or newer with plugins enabled. Paseo's plugin API is experimental. This plugin uses an internal Paseo client API to read provider usage windows, so a future Paseo release may require an update.
 
 ### Curl
 
@@ -55,3 +57,7 @@ $PASEO_HOME/plugin-data/defer/queue.json
 ```
 
 If `PASEO_HOME` is unset, it defaults to `~/.paseo`. Install only after reviewing the source.
+
+## License
+
+[MIT](LICENSE) © 2026 Tom Gringauz.
