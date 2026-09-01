@@ -1,4 +1,5 @@
-import { type PluginSurfaceProps, useRpc } from "@getpaseo/plugin";
+import { Icon, type PluginSurfaceProps, useRpc } from "@getpaseo/plugin";
+import { useToast } from "@getpaseo/plugin/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -7,11 +8,13 @@ import {
   clearSettled,
   listDeferred,
   listSessions,
+  DEFAULT_SETTINGS,
   type Deferred,
   type Session,
 } from "./defer.shared";
-import { DeferComposer, DeferredRow, deferStyles } from "./composer.client";
-import { formatClock, formatRelative, stateLabel } from "./format.shared";
+import { DeferComposer, DeferredRow, PillSetting, deferStyles } from "./composer.client";
+import { notifyDeferChanged } from "./refresh.client";
+import { formatClock, formatRelative, stateLabel, stateTone } from "./format.shared";
 
 const FILTER_THRESHOLD = 6;
 /** A busy daemon lists dozens of sessions; the filter reaches past this many. */
@@ -28,11 +31,12 @@ function sessionMeta(session: Session): string {
     .join(" · ");
 }
 
-export function DeferOverview({ theme, layout }: PluginSurfaceProps) {
+export function DeferOverview({ theme, layout, navigation }: PluginSurfaceProps) {
   const list = useRpc(listDeferred);
   const sessions = useRpc(listSessions);
   const cancel = useRpc(cancelDeferred);
   const clear = useRpc(clearSettled);
+  const toast = useToast();
   const queryClient = useQueryClient();
   const queryKey = ["defer", "all"];
 
@@ -47,7 +51,10 @@ export function DeferOverview({ theme, layout }: PluginSurfaceProps) {
     refetchInterval: 15_000,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+  const invalidate = () => {
+    notifyDeferChanged();
+    return queryClient.invalidateQueries({ queryKey });
+  };
   const styles = useMemo(() => deferStyles(theme, layout), [theme, layout]);
 
   const items = queue.data?.items ?? [];
@@ -80,12 +87,27 @@ export function DeferOverview({ theme, layout }: PluginSurfaceProps) {
 
   function onCancel(item: Deferred) {
     if (editingId === item.id) setEditingId(null);
-    void cancel({ id: item.id }).then(invalidate);
+    void cancel({ id: item.id })
+      .then(() => {
+        toast.show("Deferred message cancelled");
+        return invalidate();
+      })
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
   }
+
+  // Older hosts leave `navigation` undefined, so the action is hidden rather
+  // than dead.
+  const openSession =
+    navigation === undefined
+      ? undefined
+      : (item: Deferred) => navigation.openAgent({ agentId: item.agentId });
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.body}>
-      <Text style={styles.title}>Deferred messages</Text>
+      <View style={styles.row}>
+        <Icon name="Clock" size={20} color={theme.colors.foregroundMuted} />
+        <Text style={styles.title}>Deferred messages</Text>
+      </View>
       <Text style={styles.hint}>
         {resetsAt === null
           ? "Usage window unavailable."
@@ -173,6 +195,7 @@ export function DeferOverview({ theme, layout }: PluginSurfaceProps) {
           editing={editingId === item.id}
           onEdit={(target) => setEditingId(target.id)}
           onCancel={onCancel}
+          onOpenSession={openSession}
         />
       ))}
 
@@ -184,7 +207,14 @@ export function DeferOverview({ theme, layout }: PluginSurfaceProps) {
               accessibilityRole="button"
               accessibilityLabel="Clear delivered and failed messages"
               onPress={() => {
-                void clear({}).then(invalidate);
+                void clear({})
+                  .then(({ removed }) => {
+                    toast.show(`Cleared ${removed} message(s)`);
+                    return invalidate();
+                  })
+                  .catch((error: unknown) =>
+                    toast.error(error instanceof Error ? error.message : String(error)),
+                  );
               }}
             >
               <Text style={styles.link}>Clear</Text>
@@ -195,13 +225,19 @@ export function DeferOverview({ theme, layout }: PluginSurfaceProps) {
               <Text style={styles.itemMeta} numberOfLines={1}>
                 {item.text}
               </Text>
-              <Text style={item.state === "failed" ? styles.danger : styles.itemMeta}>
+              <Text style={styles.tone[stateTone(item)]}>
                 {`${stateLabel(item)} · ${labelFor(item.agentId)}`}
               </Text>
             </View>
           ))}
         </>
       ) : null}
+
+      <PillSetting
+        styles={styles}
+        mode={(queue.data?.settings ?? DEFAULT_SETTINGS).pillMode}
+        onSaved={invalidate}
+      />
     </ScrollView>
   );
 }

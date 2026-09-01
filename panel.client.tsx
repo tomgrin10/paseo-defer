@@ -1,17 +1,32 @@
 import {
+  Icon,
   type PluginAgentPanelProps,
   useAgent,
   useRpc,
   useWorkspace,
 } from "@getpaseo/plugin";
+import { useToast } from "@getpaseo/plugin/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { cancelDeferred, clearSettled, listDeferred, type Deferred } from "./defer.shared";
-import { DeferComposer, DeferredRow, deferStyles } from "./composer.client";
-import { stateLabel } from "./format.shared";
+import {
+  cancelDeferred,
+  clearSettled,
+  listDeferred,
+  DEFAULT_SETTINGS,
+  type Deferred,
+} from "./defer.shared";
+import { DeferComposer, DeferredRow, PillSetting, deferStyles } from "./composer.client";
+import { notifyDeferChanged } from "./refresh.client";
+import { queuedLabel, stateLabel, stateTone } from "./format.shared";
 
-export function DeferPanel({ theme, layout, agentId, workspaceId }: PluginAgentPanelProps) {
+export function DeferPanel({
+  theme,
+  layout,
+  agentId,
+  workspaceId,
+  navigation,
+}: PluginAgentPanelProps) {
   const agent = useAgent(agentId, (snapshot) => ({
     status: snapshot.status,
     title: snapshot.title,
@@ -24,6 +39,7 @@ export function DeferPanel({ theme, layout, agentId, workspaceId }: PluginAgentP
   const list = useRpc(listDeferred);
   const cancel = useRpc(cancelDeferred);
   const clear = useRpc(clearSettled);
+  const toast = useToast();
   const queryClient = useQueryClient();
   const queryKey = ["defer", agentId];
 
@@ -35,7 +51,10 @@ export function DeferPanel({ theme, layout, agentId, workspaceId }: PluginAgentP
     refetchInterval: 10_000,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+  const invalidate = () => {
+    notifyDeferChanged();
+    return queryClient.invalidateQueries({ queryKey });
+  };
   const styles = useMemo(() => deferStyles(theme, layout), [theme, layout]);
 
   const items = queue.data?.items ?? [];
@@ -51,12 +70,31 @@ export function DeferPanel({ theme, layout, agentId, workspaceId }: PluginAgentP
 
   function onCancel(item: Deferred) {
     if (editingId === item.id) setEditingId(null);
-    void cancel({ id: item.id }).then(invalidate);
+    void cancel({ id: item.id })
+      .then(() => {
+        toast.show("Deferred message cancelled");
+        return invalidate();
+      })
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+  }
+
+  // This panel sits in front of the session it writes to, so queueing a message
+  // and staying put leaves the user one step from where they were. Go back, and
+  // toast the timing the list would have shown. Older hosts expose no
+  // navigation, so there the panel simply stays open.
+  function onCreated(item: Deferred) {
+    toast.show(queuedLabel(item));
+    navigation?.openAgent({ agentId });
   }
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.body}>
-      <Text style={styles.heading}>{editing === null ? "Defer a message" : "Edit deferred message"}</Text>
+      <View style={styles.row}>
+        <Icon name="Clock" size={16} color={theme.colors.foregroundMuted} />
+        <Text style={styles.heading}>
+          {editing === null ? "Defer a message" : "Edit deferred message"}
+        </Text>
+      </View>
 
       <View style={styles.target}>
         <Text style={styles.targetTitle} numberOfLines={1}>
@@ -85,6 +123,7 @@ export function DeferPanel({ theme, layout, agentId, workspaceId }: PluginAgentP
         editing={editing}
         onEditingChange={(item) => setEditingId(item?.id ?? null)}
         onSaved={invalidate}
+        onCreated={onCreated}
       />
 
       <Text style={styles.heading}>{`Deferred for this session (${pending.length})`}</Text>
@@ -109,7 +148,14 @@ export function DeferPanel({ theme, layout, agentId, workspaceId }: PluginAgentP
               accessibilityRole="button"
               accessibilityLabel="Clear delivered and failed messages"
               onPress={() => {
-                void clear({ agentId }).then(invalidate);
+                void clear({ agentId })
+                  .then(({ removed }) => {
+                    toast.show(`Cleared ${removed} message(s)`);
+                    return invalidate();
+                  })
+                  .catch((error: unknown) =>
+                    toast.error(error instanceof Error ? error.message : String(error)),
+                  );
               }}
             >
               <Text style={styles.link}>Clear</Text>
@@ -120,11 +166,17 @@ export function DeferPanel({ theme, layout, agentId, workspaceId }: PluginAgentP
               <Text style={styles.itemMeta} numberOfLines={2}>
                 {item.text}
               </Text>
-              <Text style={item.state === "failed" ? styles.danger : styles.itemMeta}>{stateLabel(item)}</Text>
+              <Text style={styles.tone[stateTone(item)]}>{stateLabel(item)}</Text>
             </View>
           ))}
         </>
       ) : null}
+
+      <PillSetting
+        styles={styles}
+        mode={(queue.data?.settings ?? DEFAULT_SETTINGS).pillMode}
+        onSaved={invalidate}
+      />
     </ScrollView>
   );
 }

@@ -6,12 +6,15 @@ import {
   listDeferred,
   listSessions,
   updateDeferred,
+  updateSettings,
   type Deferred,
 } from "./defer.shared";
 import { DeferPanel } from "./panel.client";
+import { contributeClient } from "./pill.client";
 import { DeferOverview } from "./surface.client";
 import { createDeferredRecord, resolveDueAt } from "./engine.server";
 import { fetchSessionResetsAt, fetchSessions } from "./daemon.server";
+import { settings } from "./settings.server";
 import { store } from "./store.server";
 import { lifecycle } from "./lifecycle.shared";
 
@@ -28,8 +31,10 @@ export default function contribute(plugin: PluginContext) {
     }
     // Newest first, so the freshest entry is the one in view.
     items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-    return { items, sessionResetsAt, usageError };
+    return { items, sessionResetsAt, usageError, settings: await settings.read() };
   });
+
+  plugin.handle(updateSettings, async (patch) => ({ settings: await settings.write(patch) }));
 
   plugin.handle(listSessions, async () => ({ sessions: await fetchSessions() }));
 
@@ -79,8 +84,16 @@ export default function contribute(plugin: PluginContext) {
     title: "Defer",
     icon: "Clock",
     context: "agent",
+    // A narrow list of waiting messages reads well beside the transcript, so
+    // offer it in Explorer as well as a full workspace tab.
+    locations: ["workspace", "explorer"],
     Component: DeferPanel,
   });
+
+  // Puts "2 deferred" on the composer of every session with something waiting,
+  // beside Paseo's own task and subagent pills. The entrypoint owns pill
+  // lifetime, so sessions with an empty queue get no pill at all.
+  plugin.addClientSide(contributeClient);
 
   plugin.addCommandCenterItem({
     id: "defer-message",

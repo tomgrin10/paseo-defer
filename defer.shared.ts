@@ -31,6 +31,19 @@ export const DeferredSchema = z.object({
 });
 export type Deferred = z.infer<typeof DeferredSchema>;
 
+/**
+ * When the composer pill exists. `always` keeps a `Defer` button above every
+ * session — the only in-session route to the panel — and `waiting` shows the
+ * pill only where something is queued, leaving the composer clear otherwise.
+ */
+export const PillModeSchema = z.enum(["always", "waiting"]);
+export type PillMode = z.infer<typeof PillModeSchema>;
+
+export const SettingsSchema = z.object({ pillMode: PillModeSchema.default("always") });
+export type Settings = z.infer<typeof SettingsSchema>;
+
+export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});
+
 /** A session a message can be deferred to, as shown in the picker. */
 export const SessionSchema = z.object({
   id: z.string(),
@@ -56,7 +69,15 @@ export const listDeferred = defineRpc({
     /** Next provider window reset, so the UI can label the sessionReset option. */
     sessionResetsAt: z.string().nullable(),
     usageError: z.string().nullable(),
+    /** Carried here because the pill already polls this call. */
+    settings: SettingsSchema,
   }),
+});
+
+export const updateSettings = defineRpc({
+  name: "defer.settings.set",
+  input: SettingsSchema.partial(),
+  output: z.object({ settings: SettingsSchema }),
 });
 
 export const createDeferred = defineRpc({

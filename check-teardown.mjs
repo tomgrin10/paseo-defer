@@ -10,37 +10,44 @@
  * Runs against an isolated PASEO_HOME so the real queue is never touched.
  */
 import * as esbuild from "esbuild";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { filterEntrypoint, SDK_SPECIFIERS, unusedPlatformModulePlugin } from "./check-lib.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
+const ENTRY = resolve(DIR, "index.ts");
 const EXIT_BUDGET_MS = 10_000;
-const CLIENT_ONLY = /^(react|react\/jsx-runtime|react-native|@tanstack\/react-query|@getpaseo\/plugin(\/server)?)$/;
 
-// Mirrors createUnusedPlatformModulePlugin for the server target.
-const stubClientModules = {
-  name: "stub-client-modules",
+/**
+ * The daemon hands the SDK to the subprocess at runtime. Nothing else is
+ * stubbed: the point of this check is to run the real server code.
+ */
+const stubSdkModules = {
+  name: "stub-sdk-modules",
   setup(build) {
-    build.onResolve({ filter: CLIENT_ONLY }, (args) => ({ path: args.path, namespace: "stub" }));
-    build.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
+    const filter = new RegExp(
+      `^(${SDK_SPECIFIERS.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`,
+    );
+    build.onResolve({ filter }, (args) => ({ path: args.path, namespace: "sdk-stub" }));
+    build.onLoad({ filter: /.*/, namespace: "sdk-stub" }, () => ({
       contents: "module.exports = { defineRpc: (d) => d, defineAttachmentSource: (d) => d };",
       loader: "js",
     }));
   },
 };
 
+const { filtered } = filterEntrypoint(readFileSync(ENTRY, "utf8"), "server");
 const built = await esbuild.build({
-  entryPoints: [resolve(DIR, "index.ts")],
+  stdin: { contents: filtered, loader: "tsx", resolveDir: DIR, sourcefile: ENTRY },
   bundle: true,
   write: false,
   format: "cjs",
   platform: "node",
   target: "node20",
-  plugins: [stubClientModules],
-  absWorkingDir: DIR,
+  plugins: [stubSdkModules, unusedPlatformModulePlugin("server")],
   logLevel: "silent",
 });
 
@@ -55,7 +62,8 @@ const contribute = mod.default ?? mod;
 const plugin = new Proxy({}, { get: () => () => {} });
 (async () => {
   const cleanup = contribute(plugin);
-  if (typeof cleanup === "function") await cleanup();
+  if (typeof cleanup !== "function") throw new Error("contribute() must return a cleanup function");
+  await cleanup();
   console.log("CLEANUP_RETURNED");
 })();
 `,

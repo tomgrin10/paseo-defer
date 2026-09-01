@@ -80,3 +80,48 @@ export function stateLabel(item: Deferred): string {
       return "cancelled";
   }
 }
+
+/**
+ * Confirmation for a freshly queued message. Views that return to the session
+ * after deferring hide the list that would otherwise show the timing, so the
+ * toast has to carry it.
+ */
+export function queuedLabel(item: Deferred): string {
+  if (item.trigger.kind === "sessionReset") {
+    return item.anchorResetsAt === null
+      ? "Deferred until the session resets"
+      : `Deferred until the session resets ${formatRelative(item.anchorResetsAt)}`;
+  }
+  return `Deferred \u00b7 sending ${formatRelative(item.dueAt)} (${formatClock(item.dueAt)})`;
+}
+
+/** Which theme status colour a settled or waiting item should read in. */
+export type StateTone = "muted" | "success" | "warning" | "danger";
+
+export function stateTone(item: Deferred): StateTone {
+  switch (item.state) {
+    case "sent":
+      return "success";
+    case "failed":
+      return "danger";
+    case "cancelled":
+      return "warning";
+    default:
+      return "muted";
+  }
+}
+
+/**
+ * Composer-pill text. One line, short enough to sit beside Paseo's own pills:
+ * a single message shows when it lands, several show only the count.
+ */
+export function pillLabel(items: readonly Deferred[]): string {
+  if (items.length === 0) return "";
+  if (items.length > 1) return `${items.length} deferred`;
+  const [item] = items;
+  if (item.state === "sending") return "sending…";
+  if (item.trigger.kind === "sessionReset") {
+    return item.anchorResetsAt === null ? "on reset" : `reset ${formatRelative(item.anchorResetsAt)}`;
+  }
+  return formatRelative(item.dueAt);
+}

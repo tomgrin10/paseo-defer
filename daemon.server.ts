@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 
 /**
  * Short-lived daemon connections.
@@ -13,6 +12,38 @@ import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
  * and hung Paseo's "Stopping plugin" step, which wedged reload.
  */
 const CONNECT_TIMEOUT_MS = 10_000;
+
+type DaemonClientModule = typeof import("@getpaseo/client/internal/daemon-client");
+export type DaemonClient = InstanceType<DaemonClientModule["DaemonClient"]>;
+
+let daemonClientModule: DaemonClientModule | null = null;
+
+/**
+ * Borrows Paseo's own daemon client from the host at runtime.
+ *
+ * The specifier is assembled rather than written as a literal so the plugin
+ * compiler cannot resolve it at build time. That matters for distribution:
+ * `paseo plugin add` installs from Git and deliberately runs no package
+ * manager, so a statically imported dependency makes the plugin fail to
+ * compile with "Could not resolve". The plugin subprocess's `require` resolves
+ * from the daemon's own module graph, which always carries the matching
+ * @getpaseo/client, so borrowing it also removes any chance of a version skew
+ * between the plugin's copy and the daemon's protocol.
+ */
+function loadDaemonClientModule(): DaemonClientModule {
+  if (daemonClientModule !== null) return daemonClientModule;
+  const specifier = ["@getpaseo", "client", "internal", "daemon-client"].join("/");
+  try {
+    daemonClientModule = require(specifier) as DaemonClientModule;
+  } catch (error) {
+    throw new Error(
+      `This Paseo host does not expose its daemon client (${specifier}), which Defer needs to read provider usage and deliver messages: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  return daemonClientModule;
+}
 
 let cachedUrl: string | null = null;
 
@@ -39,6 +70,7 @@ async function resolveUrl(): Promise<string> {
 
 /** Runs `work` against a connection that is always closed before returning. */
 export async function withDaemon<T>(work: (client: DaemonClient) => Promise<T>): Promise<T> {
+  const { DaemonClient } = loadDaemonClientModule();
   const client = new DaemonClient({
     url: await resolveUrl(),
     clientId: "paseo-defer",

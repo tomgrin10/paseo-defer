@@ -2,7 +2,14 @@ import { type PluginHostProps, type PluginTheme, useRpc } from "@getpaseo/plugin
 import { useMutation } from "@tanstack/react-query";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { createDeferred, updateDeferred, type Deferred, type Trigger } from "./defer.shared";
+import {
+  createDeferred,
+  updateDeferred,
+  updateSettings,
+  type Deferred,
+  type PillMode,
+  type Trigger,
+} from "./defer.shared";
 import { formatClock, formatRelative, parseNextClockTime, triggersMatch } from "./format.shared";
 
 type Layout = PluginHostProps["layout"];
@@ -40,8 +47,9 @@ export function deferStyles(theme: PluginTheme, layout: Layout) {
     section: { color: theme.colors.foreground, fontSize: 14, fontWeight: "600" as const, marginTop: 8 },
     hint: { color: theme.colors.foregroundMuted, fontSize: 12 },
     target: {
+      backgroundColor: theme.colors.surface1,
       borderWidth: 1,
-      borderColor: theme.colors.foregroundMuted,
+      borderColor: theme.colors.border,
       borderRadius: 10,
       paddingVertical: 8,
       paddingHorizontal: 12,
@@ -51,8 +59,8 @@ export function deferStyles(theme: PluginTheme, layout: Layout) {
     targetMeta: { color: theme.colors.foregroundMuted, fontSize: 11 },
     input: {
       color: theme.colors.foreground,
-      backgroundColor: theme.colors.surface0,
-      borderColor: theme.colors.foregroundMuted,
+      backgroundColor: theme.colors.surface2,
+      borderColor: theme.colors.border,
       borderWidth: 1,
       borderRadius: 10,
       padding: 12,
@@ -60,7 +68,14 @@ export function deferStyles(theme: PluginTheme, layout: Layout) {
       textAlignVertical: "top" as const,
     },
     row: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, alignItems: "center" as const },
-    chip: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: theme.colors.foregroundMuted },
+    chip: {
+      paddingVertical: 7,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface2,
+    },
     chipOn: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
     chipText: { color: theme.colors.foreground, fontSize: 13 },
     chipTextOn: { color: theme.colors.accentForeground, fontSize: 13 },
@@ -69,13 +84,15 @@ export function deferStyles(theme: PluginTheme, layout: Layout) {
       paddingHorizontal: 12,
       borderRadius: 10,
       borderWidth: 1,
-      borderColor: theme.colors.foregroundMuted,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface2,
       maxWidth: 280,
       gap: 1,
     },
     clock: {
       color: theme.colors.foreground,
-      borderColor: theme.colors.foregroundMuted,
+      backgroundColor: theme.colors.surface2,
+      borderColor: theme.colors.border,
       borderWidth: 1,
       borderRadius: 8,
       paddingVertical: 6,
@@ -84,7 +101,8 @@ export function deferStyles(theme: PluginTheme, layout: Layout) {
     },
     filter: {
       color: theme.colors.foreground,
-      borderColor: theme.colors.foregroundMuted,
+      backgroundColor: theme.colors.surface2,
+      borderColor: theme.colors.border,
       borderWidth: 1,
       borderRadius: 8,
       paddingVertical: 6,
@@ -94,10 +112,16 @@ export function deferStyles(theme: PluginTheme, layout: Layout) {
     button: { marginTop: 4, padding: 13, borderRadius: 10, backgroundColor: theme.colors.accent },
     buttonText: { color: theme.colors.accentForeground, textAlign: "center" as const, fontWeight: "600" as const },
     danger: { color: theme.colors.statusDanger, fontSize: 12 },
-    item: { borderTopWidth: 1, borderTopColor: theme.colors.foregroundMuted, paddingVertical: 10, gap: 4 },
+    item: { borderTopWidth: 1, borderTopColor: theme.colors.border, paddingVertical: 10, gap: 4 },
     itemText: { color: theme.colors.foreground, fontSize: 13 },
     itemMeta: { color: theme.colors.foregroundMuted, fontSize: 11 },
     link: { color: theme.colors.foregroundMuted, fontSize: 11, textDecorationLine: "underline" as const },
+    tone: {
+      muted: { color: theme.colors.foregroundMuted, fontSize: 11 },
+      success: { color: theme.colors.statusSuccess, fontSize: 11 },
+      warning: { color: theme.colors.statusWarning, fontSize: 11 },
+      danger: { color: theme.colors.statusDanger, fontSize: 11 },
+    },
   };
 }
 
@@ -114,6 +138,12 @@ export interface DeferComposerProps {
   editing: Deferred | null;
   onEditingChange(item: Deferred | null): void;
   onSaved(): void;
+  /**
+   * Called once a *new* message is queued, after `onSaved`. A view that has
+   * somewhere to return to uses this to leave; an edit never fires it, because
+   * saving a change is not a reason to move the user.
+   */
+  onCreated?: ((item: Deferred) => void) | undefined;
 }
 
 /** Message box, timing chips, and the create/edit submit shared by both views. */
@@ -126,6 +156,7 @@ export function DeferComposer({
   editing,
   onEditingChange,
   onSaved,
+  onCreated,
 }: DeferComposerProps) {
   const create = useRpc(createDeferred);
   const update = useRpc(updateDeferred);
@@ -176,25 +207,28 @@ export function DeferComposer({
   );
 
   const submit = useMutation({
-    mutationFn: async (trigger: Trigger) => {
+    mutationFn: async (trigger: Trigger): Promise<{ created: Deferred | null }> => {
       const body = text.trim();
       if (editing === null) {
         if (agentId === null) throw new Error("Pick a session first.");
-        return create({ agentId, text: body, trigger });
+        const { item } = await create({ agentId, text: body, trigger });
+        return { created: item };
       }
       // Leave timing untouched unless the selection points somewhere else, so
       // fixing a typo cannot silently restart a countdown.
       const retiming = !triggersMatch(trigger, editing);
       const result = await update({ id: editing.id, text: body, ...(retiming ? { trigger } : {}) });
       if (result.error !== null) throw new Error(result.error);
-      return result;
+      return { created: null };
     },
-    onSuccess: () => {
+    onSuccess: ({ created }) => {
       setText("");
       setClockInput("");
       setProblem(null);
       onEditingChange(null);
       onSaved();
+      // Last: this may navigate away and unmount the composer.
+      if (created !== null) onCreated?.(created);
     },
     onError: (error: unknown) => setProblem(error instanceof Error ? error.message : String(error)),
   });
@@ -301,6 +335,72 @@ export function DeferComposer({
   );
 }
 
+const PILL_MODES: readonly { id: PillMode; label: string }[] = [
+  { id: "always", label: "Every session" },
+  { id: "waiting", label: "Only when waiting" },
+];
+
+export interface PillSettingProps {
+  styles: DeferStyles;
+  mode: PillMode;
+  onSaved(): void;
+}
+
+/**
+ * Where the composer pill lives, for anyone who does not want a `Defer` button
+ * above every session. Shown in both views because it applies to all of them,
+ * and because turning the pill off has to be undoable from somewhere that is
+ * not the pill.
+ */
+export function PillSetting({ styles, mode, onSaved }: PillSettingProps) {
+  const save = useRpc(updateSettings);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [pending, setPending] = useState<PillMode | null>(null);
+  // Optimistic, so a chip responds before the queue is re-read.
+  const shown = pending ?? mode;
+
+  function choose(next: PillMode) {
+    if (next === shown) return;
+    setPending(next);
+    setProblem(null);
+    void save({ pillMode: next })
+      .then(() => onSaved())
+      .catch((error: unknown) => {
+        setPending(null);
+        setProblem(error instanceof Error ? error.message : String(error));
+      });
+  }
+
+  return (
+    <>
+      <Text style={styles.section}>Composer pill</Text>
+      <View style={styles.row}>
+        {PILL_MODES.map((option) => {
+          const on = option.id === shown;
+          return (
+            <Pressable
+              key={option.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Show the composer pill on ${option.label.toLowerCase()}`}
+              accessibilityState={{ selected: on }}
+              onPress={() => choose(option.id)}
+              style={[styles.chip, on ? styles.chipOn : null]}
+            >
+              <Text style={on ? styles.chipTextOn : styles.chipText}>{option.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.hint}>
+        {shown === "always"
+          ? "A Defer button sits above every composer, and shows the queue once a session has one."
+          : "The pill only appears where something is waiting. Reach Defer from ⌘K or the Deferred sidebar."}
+      </Text>
+      {problem !== null ? <Text style={styles.danger}>{problem}</Text> : null}
+    </>
+  );
+}
+
 export interface DeferredRowProps {
   styles: DeferStyles;
   item: Deferred;
@@ -309,10 +409,21 @@ export interface DeferredRowProps {
   editing: boolean;
   onEdit(item: Deferred): void;
   onCancel(item: Deferred): void;
+  /** Omitted where the view is already inside the target session, or where the
+   * host is too old to expose navigation. */
+  onOpenSession?: ((item: Deferred) => void) | undefined;
 }
 
 /** One waiting message, with the edit and cancel affordances. */
-export function DeferredRow({ styles, item, meta, editing, onEdit, onCancel }: DeferredRowProps) {
+export function DeferredRow({
+  styles,
+  item,
+  meta,
+  editing,
+  onEdit,
+  onCancel,
+  onOpenSession,
+}: DeferredRowProps) {
   return (
     <View style={styles.item}>
       <Text style={styles.itemText} numberOfLines={3}>
@@ -340,6 +451,15 @@ export function DeferredRow({ styles, item, meta, editing, onEdit, onCancel }: D
         >
           <Text style={styles.link}>Cancel</Text>
         </Pressable>
+        {onOpenSession === undefined ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open the session this message will land in"
+            onPress={() => onOpenSession(item)}
+          >
+            <Text style={styles.link}>Open session</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );

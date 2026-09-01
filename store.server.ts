@@ -7,7 +7,7 @@ import { z } from "zod";
 
 const FileSchema = z.object({ version: z.literal(1), items: z.array(DeferredSchema) });
 
-function dataDir(): string {
+export function dataDir(): string {
   const home = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
   return join(home, "plugin-data", "defer");
 }
