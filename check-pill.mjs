@@ -12,6 +12,7 @@ import * as esbuild from "esbuild";
 import { rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { instantiateBundle } from "./check-lib.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -120,12 +121,8 @@ async function loadClientGraph() {
       absWorkingDir: DIR,
       logLevel: "silent",
     });
-    const factory = new Function(
-      "require",
-      `const module={exports:{}};const exports=module.exports;${built.outputFiles[0].text};return module.exports;`,
-    );
     const zod = await import("zod");
-    return factory((id) => {
+    return instantiateBundle(built.outputFiles[0].text, (id) => {
       if (id === "zod") return zod;
       if (!(id in STUBS)) throw new Error(`Module "${id}" is not available in plugin client code`);
       return STUBS[id];

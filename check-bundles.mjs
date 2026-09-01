@@ -15,7 +15,12 @@ import * as esbuild from "esbuild";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildOptions, filterEntrypoint, findDanglingReferences } from "./check-lib.mjs";
+import {
+  buildOptions,
+  filterEntrypoint,
+  findDanglingReferences,
+  instantiateBundle,
+} from "./check-lib.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const ENTRY = resolve(DIR, "index.ts");
@@ -39,11 +44,7 @@ async function runClientBundle(code) {
     "@getpaseo/plugin/react-native": { Icon: () => null, Modal: () => null, useToast: () => ({}) },
     "@getpaseo/plugin/server": contracts,
   };
-  const factory = new Function(
-    "require",
-    `const module={exports:{}};const exports=module.exports;${code};return module.exports;`,
-  );
-  const exported = factory((id) => {
+  const exported = instantiateBundle(code, (id) => {
     if (!(id in stubs)) throw new Error(`Module "${id}" is not available in plugin client code`);
     return stubs[id];
   });

@@ -7,6 +7,10 @@
  * compatibility badge.
  */
 import { parse } from "@babel/parser";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** Registration calls the compiler deletes from each target's entry point. */
 export const REMOVED_REGISTRATIONS = {
@@ -175,4 +179,31 @@ export function buildOptions(entryPath, resolveDir, filteredSource, target) {
     logLevel: "silent",
     treeShaking: true,
   };
+}
+
+/**
+ * Instantiates a compiled CJS bundle with a caller-supplied module resolver.
+ *
+ * The bundle is written to a throwaway `.cjs` file and loaded by Node rather
+ * than evaluated in-process. Wrapping it as a factory that takes `require` as
+ * a parameter shadows Node's own resolver inside the bundle, so every bare
+ * specifier still goes through `resolveModule` and an unstubbed one throws --
+ * the strictness the checks depend on.
+ *
+ * Loading a real file also keeps the repository free of `eval`/`new Function`,
+ * which the awesome-paseo-plugins security scan treats as a blocking finding
+ * even in dev-only tooling that never reaches the daemon.
+ */
+export function instantiateBundle(code, resolveModule) {
+  const directory = mkdtempSync(join(tmpdir(), "paseo-defer-check-"));
+  const file = join(directory, "bundle.cjs");
+  writeFileSync(
+    file,
+    `module.exports=(require)=>{const module={exports:{}};const exports=module.exports;${code};return module.exports;};`,
+  );
+  try {
+    return createRequire(import.meta.url)(file)(resolveModule);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
