@@ -10,10 +10,22 @@ import {
   type PillMode,
   type Trigger,
 } from "./defer.shared";
-import { formatClock, formatRelative, parseNextClockTime, triggersMatch } from "./format.shared";
+import {
+  clockPlaceholder,
+  describeInstant,
+  formatClock,
+  formatDuration,
+  formatRelative,
+  parseDuration,
+  parseNextClockTime,
+  triggersMatch,
+  uses12HourClock,
+  type Meridiem,
+} from "./format.shared";
 
 type Layout = PluginHostProps["layout"];
 type Choice = { id: string; label: string; trigger: () => Trigger | null };
+type Controls = { selected: string; clock: string; duration: string };
 
 const MINUTE = 60_000;
 
@@ -24,16 +36,18 @@ const PRESETS = [
   { id: "3h", label: "3h", ms: 180 * MINUTE },
 ];
 
-/** Which chip (and clock text) reproduces an already queued trigger. */
-function controlsForItem(item: Deferred): { selected: string; clock: string } {
+/** Which chip, wait, and clock text reproduce an already queued trigger. */
+function controlsForItem(item: Deferred): Controls {
   const trigger = item.trigger;
-  if (trigger.kind === "sessionReset") return { selected: "reset", clock: "" };
+  if (trigger.kind === "sessionReset") return { selected: "reset", clock: "", duration: "" };
   if (trigger.kind === "after") {
     const preset = PRESETS.find((candidate) => candidate.ms === trigger.ms);
-    if (preset) return { selected: preset.id, clock: "" };
+    if (preset) return { selected: preset.id, clock: "", duration: "" };
+    // A typed wait comes back as the same wait rather than as the clock time it
+    // resolved to, so leaving the timing alone cannot re-anchor it.
+    return { selected: "in", clock: "", duration: formatDuration(trigger.ms) };
   }
-  // An absolute time, or a relative one no longer offered as a chip.
-  return { selected: "at", clock: item.dueAt === null ? "" : formatClock(item.dueAt) };
+  return { selected: "at", duration: "", clock: item.dueAt === null ? "" : formatClock(item.dueAt) };
 }
 
 /** One style sheet for every Defer view, so the panel and surface stay in step. */
@@ -163,7 +177,10 @@ export function DeferComposer({
 
   const [text, setText] = useState("");
   const [selected, setSelected] = useState("15m");
+  const [durationInput, setDurationInput] = useState("");
   const [clockInput, setClockInput] = useState("");
+  /** Null means "whichever 9:30 comes first"; a value pins the half of the day. */
+  const [meridiem, setMeridiem] = useState<Meridiem | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   const editingId = editing?.id ?? null;
@@ -178,13 +195,20 @@ export function DeferComposer({
     if (editing === null) {
       setText("");
       setClockInput("");
+      setDurationInput("");
+      setMeridiem(null);
       return;
     }
     const controls = controlsForItem(editing);
     setText(editing.text);
     setSelected(controls.selected);
     setClockInput(controls.clock);
+    setDurationInput(controls.duration);
+    // The loaded clock text carries its own AM/PM, so nothing needs pinning.
+    setMeridiem(null);
   }, [editing, editingId]);
+
+  const hour12 = uses12HourClock();
 
   const choices: Choice[] = useMemo(
     () => [
@@ -194,17 +218,38 @@ export function DeferComposer({
         trigger: (): Trigger => ({ kind: "after", ms: preset.ms }),
       })),
       {
+        id: "in",
+        label: "In…",
+        trigger: () => {
+          const ms = parseDuration(durationInput);
+          return ms === null ? null : { kind: "after", ms };
+        },
+      },
+      {
         id: "at",
         label: "At…",
         trigger: () => {
-          const iso = parseNextClockTime(clockInput);
+          const iso = parseNextClockTime(clockInput, { meridiem, hour12 });
           return iso === null ? null : { kind: "at", iso };
         },
       },
       { id: "reset", label: "Session reset", trigger: () => ({ kind: "sessionReset" }) },
     ],
-    [clockInput],
+    [clockInput, durationInput, hour12, meridiem],
   );
+
+  // Resolved as you type, so a wait or a time is confirmed as an actual moment
+  // before it is queued. This is the whole answer to "9:30 — but which one?".
+  const waitMs = parseDuration(durationInput);
+  const clockIso = parseNextClockTime(clockInput, { meridiem, hour12 });
+  const waitHint =
+    waitMs === null
+      ? "Minutes unless you say otherwise: 3, 45m, 2h, 1h 30m."
+      : `Sends ${describeInstant(new Date(Date.now() + waitMs).toISOString())}.`;
+  const clockHint =
+    clockIso === null
+      ? `Local time, 24-hour or with am/pm: ${clockPlaceholder(hour12)}.`
+      : `Sends ${describeInstant(clockIso)}.`;
 
   const submit = useMutation({
     mutationFn: async (trigger: Trigger): Promise<{ created: Deferred | null }> => {
@@ -224,6 +269,8 @@ export function DeferComposer({
     onSuccess: ({ created }) => {
       setText("");
       setClockInput("");
+      setDurationInput("");
+      setMeridiem(null);
       setProblem(null);
       onEditingChange(null);
       onSaved();
@@ -242,7 +289,11 @@ export function DeferComposer({
     const choice = choices.find((candidate) => candidate.id === selected);
     const trigger = choice?.trigger() ?? null;
     if (trigger === null) {
-      setProblem("Enter a time like 9:30 or 21:00.");
+      setProblem(
+        selected === "in"
+          ? "Enter a wait like 3, 45m or 1h 30m, up to 30 days."
+          : `Enter a time like ${clockPlaceholder(hour12)}.`,
+      );
       return;
     }
     submit.mutate(trigger);
@@ -278,17 +329,58 @@ export function DeferComposer({
             </Pressable>
           );
         })}
-        {selected === "at" ? (
-          <TextInput
-            style={styles.clock}
-            value={clockInput}
-            onChangeText={setClockInput}
-            placeholder="9:30"
-            placeholderTextColor={theme.colors.foregroundMuted}
-            accessibilityLabel="Delivery time, 24 hour clock"
-          />
-        ) : null}
       </View>
+
+      {selected === "in" ? (
+        <>
+          <View style={styles.row}>
+            <TextInput
+              style={styles.clock}
+              value={durationInput}
+              onChangeText={setDurationInput}
+              placeholder="20m"
+              placeholderTextColor={theme.colors.foregroundMuted}
+              accessibilityLabel="How long to wait"
+            />
+          </View>
+          <Text style={styles.hint}>{waitHint}</Text>
+        </>
+      ) : null}
+
+      {selected === "at" ? (
+        <>
+          <View style={styles.row}>
+            <TextInput
+              style={styles.clock}
+              value={clockInput}
+              onChangeText={setClockInput}
+              placeholder={clockPlaceholder(hour12)}
+              placeholderTextColor={theme.colors.foregroundMuted}
+              accessibilityLabel="Delivery time"
+            />
+            {/* Only where the clock is ambiguous. A 24-hour device needs no half. */}
+            {hour12
+              ? (["am", "pm"] as const).map((half) => {
+                  const on = meridiem === half;
+                  const label = half.toUpperCase();
+                  return (
+                    <Pressable
+                      key={half}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Deliver in the ${label}`}
+                      accessibilityState={{ selected: on }}
+                      onPress={() => setMeridiem(on ? null : half)}
+                      style={[styles.chip, on ? styles.chipOn : null]}
+                    >
+                      <Text style={on ? styles.chipTextOn : styles.chipText}>{label}</Text>
+                    </Pressable>
+                  );
+                })
+              : null}
+          </View>
+          <Text style={styles.hint}>{clockHint}</Text>
+        </>
+      ) : null}
 
       {selected === "reset" ? (
         <Text style={styles.hint}>
