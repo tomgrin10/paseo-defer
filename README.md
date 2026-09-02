@@ -6,7 +6,7 @@
 
 A trusted local [Paseo](https://paseo.sh) plugin for queuing a message to an agent and delivering it later.
 
-![The Defer panel: naming the target session, typing a message, choosing a delay, and the queued message waiting with edit and cancel controls](docs/defer-panel.gif)
+![The Defer pill above the composer opening the Defer panel, a message queued for delivery in three hours, and the pill counting down with a preview card of what is waiting](docs/defer-panel.gif)
 
 Messages can be deferred until:
 
