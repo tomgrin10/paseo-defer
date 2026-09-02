@@ -34,7 +34,7 @@ Requires Paseo 0.7.0 or newer with plugins enabled — enable them in **Settings
 paseo plugin add tomgrin10/paseo-defer
 ```
 
-That is the whole install. Paseo clones the repository on the daemon machine, compiles it, and starts it: no package manager runs, and the plugin needs no installed dependencies. Pin a tag with `--ref v1.1.0`.
+That is the whole install. Paseo clones the repository on the daemon machine, compiles it, and starts it: no package manager runs, and the plugin needs no installed dependencies. Pin a tag with `--ref v1.1.1`.
 
 Then open a session and press the **Defer** pill above the composer, or press **⌘K** (**Ctrl+K** on Windows/Linux) and choose **Defer a message**.
 

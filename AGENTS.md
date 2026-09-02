@@ -13,6 +13,7 @@
 - `*.server.ts`: Node APIs, filesystem access, daemon connections, and backend behavior.
 - `*.shared.ts`: Zod RPC contracts and plain values safe in both runtimes.
 - `pill.client.tsx` owns the composer pill and its `addClientSide` entrypoint. Under the default `pillMode: "always"` it keeps one registration per *live session* — not per queue — because the pill is the plugin's only in-session UI: Paseo's new-tab launcher lists workspace-context panels only, so an agent-context panel is otherwise reachable from the command centre alone. Under `pillMode: "waiting"` only a session with a queue carries one. The entrypoint therefore tracks the agent stream itself and must drop a registration when a session closes, is removed, or moves workspace (the workspace is baked into the registration and cannot be patched).
+- A `sessionReset` item is anchored to the provider's reported window end, which is re-derived on every upstream read and so differs by milliseconds between reads of the *same* window. Compare those instants with `SAME_WINDOW_MS` of slack, never as strings or for exact equality; a real rollover moves the end by hours. Normalize any provider timestamp through `daemon.server.ts`'s single entry point so one shape reaches the queue.
 - Timing lives in `format.shared.ts`, parsers included, so both runtimes and every check read the same rules. Anything user-facing must go through `formatClock`, which follows the device's own 12- or 24-hour convention; never hard-code a 24-hour string, and keep `formatDuration` output parseable by `parseDuration`, since an edit round-trips a typed wait through its own label to avoid re-anchoring it.
 - `refresh.client.ts` is the in-app notifier between the Defer views and the pill. Paseo has no server-to-client push for plugin state, so a mutation must call `notifyDeferChanged()` or the pill stays stale for a poll interval.
 - Add nothing to `dependencies`. The server bundle must compile with no installed packages or `paseo plugin add` breaks; `daemon.server.ts` borrows Paseo's daemon client from the host through a runtime `require` for exactly that reason. `check-gitinstall.mjs` enforces it.
@@ -31,12 +32,13 @@ npm ci
 npm run verify
 ```
 
-`verify` is typecheck plus six checks, each guarding something typecheck cannot see. Keep them passing and keep `check-lib.mjs` aligned with the Paseo version in the README badge, since every check models Paseo's compiler from it.
+`verify` is typecheck plus seven checks, each guarding something typecheck cannot see. Keep them passing and keep `check-lib.mjs` aligned with the Paseo version in the README badge, since every check models Paseo's compiler from it.
 
 | Check | Guards |
 | --- | --- |
 | `check-bundles.mjs` | The dual-bundle boundary, and the app's own registration validation. A server identifier in `contribute()`'s shared body silently drops every contribution. |
 | `check-format.mjs` | The timing parsers, against a fixed `from` and an explicit clock convention: a bare wait is minutes, a bare 1–12 on an AM/PM device takes the sooner half of the day, and a shown wait or time can be typed straight back in. |
+| `check-engine.mjs` | The scheduler's due-selection, against a stubbed store and daemon. A `sessionReset` item must fire on the rollover and not on a re-read of the same window: the provider re-derives the reset instant on every upstream read, so comparing it exactly sent messages hours early. It also covers first-window adoption and a daemon that cannot answer. |
 | `check-composer.mjs` | The composer's timing controls, mounted against a small hook runtime and pressed: which trigger each option builds, that the AM/PM controls appear only on an AM/PM device, and that editing the text of a typed wait does not re-anchor it. Runs itself once per clock convention under `LC_ALL`. |
 | `check-pill.mjs` | The composer-pill entrypoint and its component: a pill per live session in each `pillMode`, the preview card's open/close/open-the-panel behaviour, sessions that close, are removed or move workspace, and every timer and subscription released on cleanup. It calls the component as a plain function against a fake React, so the card's own wiring is covered without a renderer. |
 | `check-gitinstall.mjs` | That `paseo plugin add` compiles the plugin with no `node_modules`. It also warns about source files that are not committed yet, which a Git install would miss. |
@@ -90,6 +92,8 @@ paseo plugin add file:///tmp/defer-remote.git --id defer-gittest
 paseo plugin ls        # defer-gittest must be running
 paseo plugin status defer-gittest
 ```
+
+The data path is fixed at `$PASEO_HOME/plugin-data/defer`, so a second install shares the real queue and runs a **second scheduler over it**. Keep this check short, and do not run it while anything is waiting that you would mind being delivered twice or early.
 
 Confirm the managed checkout under `~/.paseo/plugins/defer-gittest/*/checkout` has **no** `node_modules`, then run the §3 probe against `defer-gittest` as well. Clean up with `paseo plugin remove defer-gittest` and delete both temp directories.
 

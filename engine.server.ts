@@ -11,6 +11,24 @@ import type { Deferred, Trigger } from "./defer.shared";
 
 const TICK_MS = 15_000;
 
+/**
+ * How far two reported window ends may differ and still be the same window.
+ *
+ * The provider's reset instant is re-derived on every upstream read, so one
+ * rollover comes back as "15:49:59.982463", then "15:50:00.077483", then
+ * "15:50:00.309167". Compared exactly, every refresh looks like a new window.
+ * A real rollover moves the end by hours, so a minute of slack tells the two
+ * apart with room to spare.
+ */
+const SAME_WINDOW_MS = 60_000;
+
+/** Milliseconds for a timestamp we were given, or null if it is unusable. */
+function instantOf(value: string | null): number | null {
+  if (value === null) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 /** Resolves the absolute due instant for a trigger, when one is knowable up front. */
 export async function resolveDueAt(
   trigger: Trigger,
@@ -55,16 +73,22 @@ function isTimeDue(item: Deferred, now: number): boolean {
 }
 
 /**
- * A sessionReset item fires when the reported window end moves, which is the
- * rollover itself. The timestamp comparison only covers being late to notice.
+ * A sessionReset item fires when the window it was queued against has ended:
+ * either the clock reached that end, or the provider is already reporting a
+ * window that ends materially later, which only happens once ours rolled over.
+ * "Materially" is the whole point — a difference of milliseconds is the same
+ * window being re-read, and treating that as a rollover sent messages hours
+ * early.
  */
-function isResetDue(item: Deferred, currentResetsAt: string | null, now: number): boolean {
-  if (item.anchorResetsAt === null) return false;
-  if (currentResetsAt !== null && currentResetsAt !== item.anchorResetsAt) return true;
-  return Date.parse(item.anchorResetsAt) <= now;
+export function isResetDue(item: Deferred, currentResetsAt: string | null, now: number): boolean {
+  const anchor = instantOf(item.anchorResetsAt);
+  if (anchor === null) return false;
+  const current = instantOf(currentResetsAt);
+  if (current !== null && current - anchor > SAME_WINDOW_MS) return true;
+  return anchor <= now;
 }
 
-async function selectDue(pending: Deferred[], now: number): Promise<Deferred[]> {
+export async function selectDue(pending: Deferred[], now: number): Promise<Deferred[]> {
   const timed = pending.filter((item) => item.trigger.kind !== "sessionReset");
   const resets = pending.filter((item) => item.trigger.kind === "sessionReset");
   const due = timed.filter((item) => isTimeDue(item, now));
@@ -78,10 +102,19 @@ async function selectDue(pending: Deferred[], now: number): Promise<Deferred[]> 
     console.error("[defer] could not read usage window; reset triggers wait", String(error));
     return due;
   }
+  const current = instantOf(currentResetsAt);
   for (const item of resets) {
-    if (item.anchorResetsAt === null) {
+    const anchor = instantOf(item.anchorResetsAt);
+    if (anchor === null) {
       if (currentResetsAt === null) continue;
-      // Adopt the first window we can read, then wait for it to move.
+      // Adopt the first window we can read, then wait for it to end.
+      await store.update(item.id, { anchorResetsAt: currentResetsAt, dueAt: currentResetsAt });
+      continue;
+    }
+    if (current !== null && anchor - current > SAME_WINDOW_MS) {
+      // The end moved earlier. A new window always ends later than the one it
+      // replaced, so this is the provider revising the window we are waiting
+      // on: follow it rather than fire at a time we now know is wrong.
       await store.update(item.id, { anchorResetsAt: currentResetsAt, dueAt: currentResetsAt });
       continue;
     }

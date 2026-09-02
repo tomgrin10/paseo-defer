@@ -172,7 +172,24 @@ function selectWindowReset(
   const window =
     entry?.windows?.find((candidate) => candidate.id === "five_hour") ??
     entry?.windows?.find((candidate) => candidate.id === "session");
-  return window?.resetsAt ?? null;
+  return normalizeInstant(window?.resetsAt);
+}
+
+/**
+ * One canonical shape for a provider timestamp, which arrives with microseconds
+ * and a numeric offset ("2026-09-02T15:50:00.309167+00:00"). Normalizing here,
+ * at the only place such a value enters the plugin, keeps a stored anchor
+ * comparable with a later read and keeps an unparseable value out of the queue,
+ * where it would otherwise sit forever as a due date that never arrives.
+ */
+function normalizeInstant(value: string | null | undefined): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const ms = Date.parse(value);
+  if (Number.isNaN(ms)) {
+    console.error("[defer] provider reported an unreadable window reset; ignoring it");
+    return null;
+  }
+  return new Date(ms).toISOString();
 }
 
 /**
