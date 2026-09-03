@@ -116,7 +116,7 @@ If the app loads but never connects — or you are on a machine that has never r
 ```sh
 curl -sS -o /dev/null -w '%{http_code}\n' -m 5 \
   -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
-  -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Origin: http://127.0.0.1:8787' \
+  -H "Sec-WebSocket-Key: $(openssl rand -base64 16)" -H 'Origin: http://127.0.0.1:8787' \
   http://127.0.0.1:6767/ws       # 101 (then curl holds the socket open and times out); 403 means not allowlisted
 ```
 
