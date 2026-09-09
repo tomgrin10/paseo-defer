@@ -165,8 +165,8 @@ const THEME = {
 };
 
 const ENTRY = resolve(DIR, `.check-composer.${LOCALE}.entry.ts`);
-const ENTRY_SOURCE = `export { DeferComposer, deferStyles } from "./composer.client";
-export { clockPlaceholder, formatDuration, uses12HourClock } from "./format.shared";
+const ENTRY_SOURCE = `export { DeferComposer, deferStyles } from "./client/composer";
+export { clockPlaceholder, formatDuration, uses12HourClock } from "./shared/format";
 `;
 
 /** Records every RPC the composer makes, and answers them plausibly. */
@@ -220,7 +220,7 @@ async function loadComposer() {
         "react-native",
         "@tanstack/react-query",
         "@getpaseo/plugin",
-        "@getpaseo/plugin/server",
+        "@getpaseo/plugin/client",
         "zod",
       ],
       absWorkingDir: DIR,
@@ -259,8 +259,8 @@ async function harness({ editing = null } = {}) {
             .then(onSuccess, onError),
       }),
     },
-    "@getpaseo/plugin": { useRpc: rpc.useRpc, Icon: () => null },
-    "@getpaseo/plugin/server": { defineRpc: (d) => d },
+    "@getpaseo/plugin": { defineRpc: (d) => d },
+    "@getpaseo/plugin/client": { useRpc: rpc.useRpc },
   };
   const graph = instantiateBundle(CODE, (id) => {
     if (id === "zod") return zod;

@@ -1,4 +1,4 @@
-import type { Deferred, Trigger } from "./defer.shared";
+import type { Deferred, Trigger } from "./defer";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;

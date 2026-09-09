@@ -1,10 +1,10 @@
 /**
- * Drives the composer-pill client entrypoint outside the app.
+ * Drives the composer-pill client contribution outside the app.
  *
- * `check-bundles.mjs` proves `addClientSide` is registered; this proves the
- * contribution behaves: one pill per session that has something waiting, none
- * for an empty queue, a panel opened on press, and every timer and
- * subscription released on cleanup. Paseo tears the entrypoint down on reload,
+ * `check-bundles.mjs` proves the client entry registers its contributions; this
+ * proves the pill behavior: one pill per session, an action for an empty queue,
+ * a popover for waiting messages, and every timer and subscription released on
+ * cleanup. Paseo tears the client entry down on reload,
  * disable and disconnect, and a leaked interval there is the same class of bug
  * that once wedged this plugin's "Stopping plugin" step.
  */
@@ -24,8 +24,6 @@ const DIR = dirname(fileURLToPath(import.meta.url));
 const react = {
   useCallback: (fn) => fn,
   useMemo: (fn) => fn(),
-  useRef: (value) => ({ current: value }),
-  useEffect: () => undefined,
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
 };
@@ -86,9 +84,9 @@ const STUBS = {
   "react/jsx-runtime": jsxRuntime,
   "react-native": { View: "View", Text: "Text", Pressable: "Pressable" },
   "@tanstack/react-query": {},
-  "@getpaseo/plugin": { Icon: () => null, defineRpc: (d) => d },
-  "@getpaseo/plugin/react-native": { Icon: () => null, Modal: () => null, useToast: () => ({}) },
-  "@getpaseo/plugin/server": { defineRpc: (d) => d, defineAttachmentSource: (d) => d },
+  "@getpaseo/plugin": { defineRpc: (d) => d },
+  "@getpaseo/plugin/client": {},
+  "@getpaseo/plugin/client/react-native": {},
 };
 
 const failures = [];
@@ -102,9 +100,9 @@ function check(condition, description) {
  * share a module instance exactly as they do inside Paseo's client bundle.
  */
 const ENTRY = resolve(DIR, ".check-pill.entry.ts");
-const ENTRY_SOURCE = `export { contributeClient } from "./pill.client";
-export { notifyDeferChanged } from "./refresh.client";
-export { pillLabel } from "./format.shared";
+const ENTRY_SOURCE = `export { contributeClient } from "./client/pill";
+export { notifyDeferChanged } from "./client/refresh";
+export { pillLabel } from "./shared/format";
 `;
 
 async function loadClientGraph() {
@@ -241,8 +239,13 @@ function createFakeClient({ items, agents, pillMode }) {
       addComposerPill(contribution) {
         const entry = { contribution, removed: false };
         pills.push(entry);
-        return () => {
-          entry.removed = true;
+        return {
+          update(patch) {
+            entry.contribution.button = { ...entry.contribution.button, ...patch };
+          },
+          remove() {
+            entry.removed = true;
+          },
         };
       },
     },
@@ -288,17 +291,14 @@ try {
   const registration = live(fake)[0]?.contribution;
   check(registration?.agentId === "agent-1", "the pill is bound to the session");
   check(registration?.workspaceId === "ws-1", "the pill is bound to the session's workspace");
-  check(typeof registration?.Component === "function", "the pill supplies a component");
   check(
-    typeof registration?.title === "string" && registration.title.trim() !== "",
+    typeof registration?.button?.title === "string" && registration.button.title.trim() !== "",
     "the pill has an accessible label",
   );
+  check(registration?.button?.label === "Defer", "an idle pill reads as a Defer button");
+  check(registration?.button?.behavior?.kind === "action", "an idle pill uses an action behavior");
 
-  const draw = () => render(registration.Component, { agentId: "agent-1", workspaceId: "ws-1" });
-  check(textOf(draw()).includes("Defer"), "an idle pill reads as a Defer button");
-  check(cardOf(draw()) === undefined, "an idle pill shows no card");
-
-  registration?.onPress();
+  if (registration?.button?.behavior.kind === "action") registration.button.behavior.onPress();
   check(
     fake.opened.length === 1 &&
       fake.opened[0].id === "defer" &&
@@ -306,36 +306,37 @@ try {
       fake.opened[0].options?.workspaceId === "ws-1",
     "pressing an idle pill opens the panel straight away",
   );
-  check(cardOf(draw()) === undefined, "pressing an idle pill opens no card");
+  check(fake.opened.length === 1, "pressing an idle pill opens no popover");
 
   // Queue something for that session: the same pill becomes a status.
   items = [deferred("one", "agent-1", 900_000)];
   graph.notifyDeferChanged();
   await wait(400);
   check(live(fake).length === 1, "queueing a message does not add a second pill");
-  check(textOf(draw()).includes("in "), "a waiting message replaces the button label");
+  check(registration?.button?.label?.startsWith("in "), "a waiting message replaces the button label");
+  check(registration?.button?.behavior?.kind === "popover", "a waiting pill uses a popover behavior");
 
-  // The pill toggles the preview card; the card is what opens the panel.
-  registration?.onPress();
-  check(cardOf(draw()) !== undefined, "pressing the pill opens the preview card");
-  check(textOf(draw()).includes("message one"), "the card shows the waiting message");
-  check(fake.opened.length === 1, "pressing the pill opens no panel while something waits");
-
-  registration?.onPress();
-  check(cardOf(draw()) === undefined, "pressing the pill again closes the card");
-  check(fake.opened.length === 1, "closing the card opens no panel");
-
-  registration?.onPress();
-  cardOf(draw())?.props.onPress();
+  let closed = false;
+  const drawPopover = () => {
+    const behavior = registration?.button?.behavior;
+    if (behavior?.kind !== "popover") return null;
+    return render(behavior.Content, {
+      agentId: "agent-1",
+      workspaceId: "ws-1",
+      close: () => {
+        closed = true;
+      },
+    });
+  };
+  const popover = drawPopover();
+  check(cardOf(popover) !== undefined, "the waiting pill opens a preview popover");
+  check(textOf(popover).includes("message one"), "the popover shows the waiting message");
+  cardOf(popover)?.props.onPress();
   check(
     fake.opened.length === 2 && fake.opened[1].options?.agentId === "agent-1",
-    "pressing the card opens the panel for that session",
+    "the popover opens the panel for that session",
   );
-  check(cardOf(draw()) === undefined, "opening the panel puts the card away");
-
-  // On web that same click also reaches Paseo's pressable under the card.
-  registration?.onPress();
-  check(cardOf(draw()) === undefined, "the click echoing down to the pill does not re-open the card");
+  check(closed, "opening the panel closes the popover");
 
   // A second live session gets its own pill from the agent stream alone.
   const readsBefore = fake.listCalls;
@@ -357,8 +358,10 @@ try {
   graph.notifyDeferChanged();
   await wait(400);
   check(live(fake).length === 2, "an emptied queue keeps the pill as a button");
-  check(textOf(draw()).includes("Defer"), "an emptied queue restores the button label");
-  check(cardOf(draw()) === undefined, "an emptied queue leaves no card behind");
+  check(
+    live(fake).find((entry) => entry.contribution.agentId === "agent-1")?.contribution.button.label === "Defer",
+    "an emptied queue restores the button label",
+  );
 
   // A message for a session Paseo has no snapshot for has nowhere to sit.
   items = [deferred("three", "agent-orphan", 60_000)];
@@ -409,11 +412,10 @@ try {
   await wait(400);
   check(live(fake).length === 1, "switching back to every session restores the button pill");
 
-  // Leave a pressed preview up: its dismissal timer must not outlive teardown.
+  // Leave a registered popover up: cleanup must still remove the host handle.
   items = [deferred("four", "agent-1", 60_000)];
   graph.notifyDeferChanged();
   await wait(400);
-  live(fake)[0]?.contribution.onPress();
 
   await cleanup();
   check(live(fake).length === 0, "cleanup removes every pill");

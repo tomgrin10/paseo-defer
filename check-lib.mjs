@@ -31,8 +31,9 @@ export const REMOVED_REGISTRATIONS = {
 /** Specifiers the daemon hands to the plugin's own runtime instead of bundling. */
 export const SDK_SPECIFIERS = [
   "@getpaseo/plugin",
+  "@getpaseo/plugin/client",
+  "@getpaseo/plugin/client/react-native",
   "@getpaseo/plugin/server",
-  "@getpaseo/plugin/react-native",
 ];
 
 /** Host modules marked external for the client target. */
@@ -57,7 +58,8 @@ export const CLIENT_ONLY_MODULES = [
   "react",
   "react/jsx-runtime",
   "react-native",
-  "@getpaseo/plugin/react-native",
+  "@getpaseo/plugin/client",
+  "@getpaseo/plugin/client/react-native",
 ];
 
 function exactSpecifierFilter(specifiers) {

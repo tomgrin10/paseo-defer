@@ -1,4 +1,5 @@
-import { type PluginHostProps, type PluginTheme, useRpc } from "@getpaseo/plugin";
+import { type PluginTheme } from "@getpaseo/plugin";
+import { type PluginHostProps, useRpc } from "@getpaseo/plugin/client";
 import { useMutation } from "@tanstack/react-query";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
@@ -9,7 +10,7 @@ import {
   type Deferred,
   type PillMode,
   type Trigger,
-} from "./defer.shared";
+} from "../shared/defer";
 import {
   clockPlaceholder,
   describeInstant,
@@ -21,7 +22,7 @@ import {
   triggersMatch,
   uses12HourClock,
   type Meridiem,
-} from "./format.shared";
+} from "../shared/format";
 
 type Layout = PluginHostProps["layout"];
 type Choice = { id: string; label: string; trigger: () => Trigger | null };

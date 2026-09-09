@@ -32,7 +32,7 @@ const world = {
 globalThis.__deferCheck = world;
 
 const STUBS = {
-  "./store.server": `
+  "./store": `
     export const store = {
       list: async () => globalThis.__deferCheck.items,
       update: async (id, patch) => {
@@ -42,7 +42,7 @@ const STUBS = {
       recoverInterrupted: async () => 0,
     };
   `,
-  "./daemon.server": `
+  "./daemon": `
     export const fetchSessionResetsAt = async () => {
       if (globalThis.__deferCheck.usageFails) throw new Error("usage unavailable");
       return globalThis.__deferCheck.resetsAt;
@@ -51,13 +51,13 @@ const STUBS = {
     export const withDaemon = async (work) => work({});
     export const clearCaches = () => {};
   `,
-  "./lifecycle.shared": `export const lifecycle = globalThis.__deferCheck.lifecycle;`,
+  "../shared/lifecycle": `export const lifecycle = globalThis.__deferCheck.lifecycle;`,
 };
 
 const stubPlugin = {
   name: "defer-check-stubs",
   setup(build) {
-    build.onResolve({ filter: /^\.\/(store\.server|daemon\.server|lifecycle\.shared)$/ }, (args) => ({
+    build.onResolve({ filter: /^(\.\/store|\.\/daemon|\.\.\/shared\/lifecycle)$/ }, (args) => ({
       path: args.path,
       namespace: "defer-stub",
     }));
@@ -70,13 +70,13 @@ const stubPlugin = {
 
 async function loadEngine() {
   const built = await esbuild.build({
-    entryPoints: [resolve(DIR, "engine.server.ts")],
+    entryPoints: [resolve(DIR, "server/engine.ts")],
     bundle: true,
     write: false,
     format: "cjs",
     platform: "neutral",
     target: "es2020",
-    external: ["zod", "@getpaseo/plugin/server", "node:crypto"],
+    external: ["zod", "@getpaseo/plugin", "node:crypto"],
     plugins: [stubPlugin],
     absWorkingDir: DIR,
     logLevel: "silent",
@@ -84,7 +84,7 @@ async function loadEngine() {
   return instantiateBundle(built.outputFiles[0].text, (id) => {
     if (id === "node:crypto") return crypto;
     if (id === "zod") return {};
-    if (id === "@getpaseo/plugin/server") return { defineRpc: (d) => d };
+    if (id === "@getpaseo/plugin") return { defineRpc: (d) => d };
     throw new Error(`Module "${id}" is not available here`);
   });
 }

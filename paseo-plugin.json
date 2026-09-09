@@ -1,3 +1,6 @@
 {
-  "id": "paseo-defer"
+  "id": "paseo-defer",
+  "requirements": {
+    "paseo": ">=0.8.0"
+  }
 }

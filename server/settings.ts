@@ -2,8 +2,8 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { DEFAULT_SETTINGS, SettingsSchema, type Settings } from "./defer.shared";
-import { dataDir } from "./store.server";
+import { DEFAULT_SETTINGS, SettingsSchema, type Settings } from "../shared/defer";
+import { dataDir } from "./store";
 
 const FileSchema = z.object({ version: z.literal(1), settings: SettingsSchema });
 

@@ -5,8 +5,9 @@
     "moduleResolution": "Bundler",
     "lib": [
       "ES2023",
-      "DOM"
+      "ES2022.Error"
     ],
+    "types": ["node"],
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,

@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { DeferredSchema, type Deferred } from "./defer.shared";
+import { DeferredSchema, type Deferred } from "../shared/defer";
 import { z } from "zod";
 
 const FileSchema = z.object({ version: z.literal(1), items: z.array(DeferredSchema) });

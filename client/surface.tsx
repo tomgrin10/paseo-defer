@@ -1,5 +1,5 @@
-import { Icon, type PluginSurfaceProps, useRpc } from "@getpaseo/plugin";
-import { useToast } from "@getpaseo/plugin/react-native";
+import { type PluginSurfaceProps, useRpc } from "@getpaseo/plugin/client";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -11,10 +11,10 @@ import {
   DEFAULT_SETTINGS,
   type Deferred,
   type Session,
-} from "./defer.shared";
-import { DeferComposer, DeferredRow, PillSetting, deferStyles } from "./composer.client";
-import { notifyDeferChanged } from "./refresh.client";
-import { formatClock, formatRelative, stateLabel, stateTone } from "./format.shared";
+} from "../shared/defer";
+import { DeferComposer, DeferredRow, PillSetting, deferStyles } from "./composer";
+import { notifyDeferChanged } from "./refresh";
+import { formatClock, formatRelative, stateLabel, stateTone } from "../shared/format";
 
 const FILTER_THRESHOLD = 6;
 /** A busy daemon lists dozens of sessions; the filter reaches past this many. */

@@ -13,8 +13,57 @@ import { join } from "node:path";
  */
 const CONNECT_TIMEOUT_MS = 10_000;
 
-type DaemonClientModule = typeof import("@getpaseo/client/internal/daemon-client");
-export type DaemonClient = InstanceType<DaemonClientModule["DaemonClient"]>;
+interface DaemonClientOptions {
+  url: string;
+  clientId: string;
+  clientType: "cli";
+  reconnect: { enabled: false };
+  connectTimeoutMs: number;
+  suppressSendErrors: boolean;
+}
+
+interface AgentSnapshot {
+  id?: string;
+  status: string;
+  title?: string;
+  provider: string;
+  lastUserMessageAt?: string;
+  updatedAt?: string;
+}
+
+interface AgentProject {
+  projectName?: string;
+  workspaceName?: string;
+}
+
+interface AgentEntry {
+  agent?: AgentSnapshot;
+  project?: AgentProject;
+}
+
+interface ProviderUsageWindow {
+  id: string;
+  resetsAt?: string | null;
+}
+
+interface ProviderUsageEntry {
+  providerId: string;
+  windows?: ProviderUsageWindow[];
+}
+
+interface DaemonClient {
+  connect(): Promise<void>;
+  close(): Promise<void>;
+  fetchAgents(): Promise<{ entries?: AgentEntry[] }>;
+  listProviderUsage(): Promise<{ providers?: ProviderUsageEntry[] }>;
+  sendMessage(agentId: string, text: string): Promise<void>;
+}
+
+interface DaemonClientModule {
+  DaemonClient: new (options: DaemonClientOptions) => DaemonClient;
+}
+
+export type { DaemonClient };
 
 let daemonClientModule: DaemonClientModule | null = null;
 

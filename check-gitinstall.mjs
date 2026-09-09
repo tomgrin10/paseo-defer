@@ -1,64 +1,93 @@
 /**
  * Proves the plugin installs from Git.
  *
- * `paseo plugin add owner/repo` clones the repository and compiles it without
- * running a package manager, so anything the bundle imports statically has to
- * be either a host-provided module or source committed in this repo. A single
- * `import ... from "@getpaseo/client"` is enough to break Git installs while
- * still working perfectly from a directory install that has node_modules.
- *
- * So: copy the sources somewhere with no node_modules and compile them the way
- * the daemon does.
+ * `paseo plugin add owner/repo` clones the repository and compiles the two
+ * runtime entries without running a package manager, so anything imported by
+ * the bundles has to be either committed source or a host-provided module.
  */
 import * as esbuild from "esbuild";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildOptions, filterEntrypoint } from "./check-lib.mjs";
+import {
+  CLIENT_EXTERNALS,
+  SERVER_EXTERNALS,
+  unusedPlatformModulePlugin,
+} from "./check-lib.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
-const SOURCE = /\.tsx?$/;
+const SOURCE_EXTENSIONS = /\.(?:tsx?|mjs|json|md|gif)$/;
 
 console.log("Checking Git-install compatibility...");
 
 const failures = [];
 
-/** Files a Git clone would carry, so an uncommitted source shows up as a gap. */
 function trackedFiles() {
   try {
     return new Set(
       execFileSync("git", ["ls-files"], { cwd: DIR, encoding: "utf8" })
         .split("\n")
-        .filter((line) => line !== ""),
+        .filter(Boolean),
     );
   } catch {
     return null;
   }
 }
 
+function copySources(source, destination, copied, tracked) {
+  for (const name of readdirSync(source)) {
+    if (name === ".git" || name === "node_modules" || name.startsWith(".check-")) continue;
+    const sourcePath = join(source, name);
+    const relativePath = relative(DIR, sourcePath);
+    const destinationPath = join(destination, relativePath);
+    const stats = statSync(sourcePath);
+    if (stats.isDirectory()) {
+      copySources(sourcePath, destination, copied, tracked);
+      continue;
+    }
+    if (!SOURCE_EXTENSIONS.test(name) && name !== "LICENSE") continue;
+    mkdirSync(dirname(destinationPath), { recursive: true });
+    copyFileSync(sourcePath, destinationPath);
+    copied.push(relativePath);
+    if (tracked !== null && !tracked.has(relativePath)) {
+      console.log(`  ! not committed yet, so a Git install would miss: ${relativePath}`);
+    }
+  }
+}
+
 const staging = mkdtempSync(join(tmpdir(), "defer-gitinstall-"));
 try {
   const tracked = trackedFiles();
-  const untracked = [];
   const copied = [];
-  for (const name of readdirSync(DIR)) {
-    if (!SOURCE.test(name)) continue;
-    copyFileSync(join(DIR, name), join(staging, name));
-    copied.push(name);
-    if (tracked !== null && !tracked.has(name)) untracked.push(name);
-  }
-  // Only the entry point needs to exist for the compile; the rest are resolved
-  // from it, and anything missing surfaces as a resolution error below.
-  copyFileSync(join(DIR, "paseo-plugin.json"), join(staging, "paseo-plugin.json"));
+  copySources(DIR, staging, copied, tracked);
 
-  const entry = resolve(staging, "index.ts");
-  const source = readFileSync(entry, "utf8");
-  for (const target of ["client", "server"]) {
-    const { filtered } = filterEntrypoint(source, target);
+  for (const [target, entryName, external] of [
+    ["client", "index.client.tsx", CLIENT_EXTERNALS],
+    ["server", "index.server.ts", SERVER_EXTERNALS],
+  ]) {
+    const entry = resolve(staging, entryName);
     try {
-      await esbuild.build(buildOptions(entry, staging, filtered, target));
+      await esbuild.build({
+        entryPoints: [entry],
+        bundle: true,
+        write: false,
+        format: "cjs",
+        platform: target === "server" ? "node" : "neutral",
+        target: target === "server" ? "node20" : "es2020",
+        supported: target === "client" ? { "async-await": false } : undefined,
+        external,
+        plugins: [unusedPlatformModulePlugin(target)],
+        logLevel: "silent",
+      });
       console.log(`  ✓ ${target}: compiles with no installed dependencies`);
     } catch (error) {
       const messages = (error?.errors ?? []).map((item) => item.text);
@@ -67,14 +96,8 @@ try {
       );
     }
   }
-
-  if (untracked.length > 0) {
-    // Not a failure: this is the normal state mid-change. It is a failure at
-    // release time, which is why it prints loudly.
-    console.log(`  ! not committed yet, so a Git install would miss: ${untracked.join(", ")}`);
-  }
 } catch (error) {
-  failures.push(error instanceof Error ? (error.stack ?? error.message) : String(error));
+  failures.push(error instanceof Error ? error.stack ?? error.message : String(error));
 } finally {
   rmSync(staging, { recursive: true, force: true });
 }

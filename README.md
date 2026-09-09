@@ -1,6 +1,6 @@
 # paseo-defer
 
-[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.7.0-8A63D2?style=for-the-badge)](https://paseo.sh)
+[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.8.0-8A63D2?style=for-the-badge)](https://paseo.sh)
 [![Release](https://img.shields.io/github/v/release/tomgrin10/paseo-defer?display_name=tag&sort=semver&style=for-the-badge&label=release&color=6366f1)](https://github.com/tomgrin10/paseo-defer/releases/latest)
 [![License](https://img.shields.io/github/license/tomgrin10/paseo-defer?style=for-the-badge&color=2563eb)](LICENSE)
 
@@ -28,7 +28,7 @@ When a message becomes due, paseo-defer waits for the target agent to become idl
 
 ## Install
 
-Requires Paseo 0.7.0 or newer with plugins enabled — enable them in **Settings → Plugins** first if they are off.
+Requires Paseo 0.8.0 or newer with plugins enabled — enable them in **Settings → Plugins** first if they are off.
 
 ```bash
 paseo plugin add tomgrin10/paseo-defer

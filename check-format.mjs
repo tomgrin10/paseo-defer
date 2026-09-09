@@ -18,7 +18,7 @@ const DIR = dirname(fileURLToPath(import.meta.url));
 const ENTRY = resolve(DIR, ".check-format.entry.ts");
 
 async function loadFormat() {
-  writeFileSync(ENTRY, `export * from "./format.shared";\n`);
+  writeFileSync(ENTRY, `export * from "./shared/format";\n`);
   try {
     const built = await esbuild.build({
       entryPoints: [ENTRY],
@@ -27,14 +27,14 @@ async function loadFormat() {
       format: "cjs",
       platform: "neutral",
       target: "es2020",
-      external: ["zod", "@getpaseo/plugin/server"],
+      external: ["zod", "@getpaseo/plugin"],
       absWorkingDir: DIR,
       logLevel: "silent",
     });
     const zod = await import("zod");
     return instantiateBundle(built.outputFiles[0].text, (id) => {
       if (id === "zod") return zod;
-      if (id === "@getpaseo/plugin/server") return { defineRpc: (d) => d };
+      if (id === "@getpaseo/plugin") return { defineRpc: (d) => d };
       throw new Error(`Module "${id}" is not available here`);
     });
   } finally {

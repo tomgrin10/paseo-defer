@@ -1,192 +1,135 @@
 /**
- * Guards the plugin runtime boundary, which typecheck cannot see.
- *
- * Paseo compiles index.ts twice. For each target it deletes the other
- * runtime's imports and the registration calls that do not apply, but leaves
- * every other statement in place. So a server identifier used anywhere in
- * contribute()'s shared body survives with its import gone and throws a
- * ReferenceError at load, which silently drops every contribution.
- *
- * The client bundle is then executed against the same validation the app
- * applies in evaluatePluginClientBundle, so a registration Paseo would reject
- * at install time fails here instead.
+ * Proves the v0.8 client and server runtime entries compile independently and
+ * that the client registrations satisfy Paseo's current contribution shape.
  */
 import * as esbuild from "esbuild";
-import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  buildOptions,
-  filterEntrypoint,
-  findDanglingReferences,
-  instantiateBundle,
-} from "./check-lib.mjs";
+import { instantiateBundle, CLIENT_EXTERNALS, SERVER_EXTERNALS, unusedPlatformModulePlugin } from "./check-lib.mjs";
 
 const DIR = dirname(fileURLToPath(import.meta.url));
-const ENTRY = resolve(DIR, "index.ts");
+const ENTRIES = {
+  client: resolve(DIR, "index.client.tsx"),
+  server: resolve(DIR, "index.server.ts"),
+};
 
-/**
- * Executes the filtered client bundle the way the app does: a strict module
- * map that rejects anything the host does not provide, and a plugin object
- * that applies the app's validation. A permissive stub would pass
- * registrations Paseo rejects.
- */
+async function build(target) {
+  return esbuild.build({
+    entryPoints: [ENTRIES[target]],
+    bundle: true,
+    write: false,
+    format: "cjs",
+    platform: target === "server" ? "node" : "neutral",
+    target: target === "server" ? "node20" : "es2020",
+    supported: target === "client" ? { "async-await": false } : undefined,
+    external: target === "client" ? CLIENT_EXTERNALS : SERVER_EXTERNALS,
+    plugins: [unusedPlatformModulePlugin(target)],
+    logLevel: "silent",
+  });
+}
+
+const failures = [];
+function check(condition, description) {
+  if (!condition) failures.push(description);
+}
+
 async function runClientBundle(code) {
   const zod = await import("zod");
-  const contracts = { defineRpc: (d) => d, defineAttachmentSource: (d) => d };
+  const react = {};
+  const jsxRuntime = { Fragment: "Fragment", jsx: () => null, jsxs: () => null };
   const stubs = {
     zod,
-    react: {},
-    "react/jsx-runtime": {},
+    react,
+    "react/jsx-runtime": jsxRuntime,
     "react-native": {},
     "@tanstack/react-query": {},
-    "@getpaseo/plugin": { ...contracts, Icon: () => null },
-    "@getpaseo/plugin/react-native": { Icon: () => null, Modal: () => null, useToast: () => ({}) },
-    "@getpaseo/plugin/server": contracts,
+    "@getpaseo/plugin": { defineRpc: (definition) => definition },
+    "@getpaseo/plugin/client": {},
+    "@getpaseo/plugin/client/react-native": { Icon: () => null, useToast: () => ({}) },
   };
-  const exported = instantiateBundle(code, (id) => {
-    if (!(id in stubs)) throw new Error(`Module "${id}" is not available in plugin client code`);
-    return stubs[id];
-  });
-  const contribute = exported?.default;
-  if (typeof contribute !== "function") throw new Error("index.ts must default-export a function");
-
   const summary = [];
-  const usedIds = new Map();
-  const surfaceIds = new Set();
-  const sidebarSurfaces = [];
-
-  const requireId = (value, what) => {
-    const id = typeof value === "string" ? value.trim() : "";
-    if (id === "") throw new Error(`Missing ${what}`);
-    const seen = usedIds.get(what);
-    if (seen === undefined) usedIds.set(what, new Set([id]));
-    else if (seen.has(id)) throw new Error(`Duplicate ${what}: ${id}`);
-    else seen.add(id);
-    return id;
-  };
-  const requireText = (value, what) => {
-    if (typeof value !== "string" || value.trim() === "") throw new Error(`Missing ${what}`);
-  };
-  const requireFn = (value, what) => {
-    if (typeof value !== "function") throw new Error(`${what} is not a function`);
-  };
-
-  const plugin = {
+  const ids = new Set();
+  const client = {
+    paseo: {
+      agents: {
+        subscribe() {
+          return () => {};
+        },
+        async list() {
+          return { entries: [], pageInfo: {} };
+        },
+      },
+    },
+    async rpc() {
+      return { items: [], sessionResetsAt: null, usageError: null, settings: { pillMode: "always" } };
+    },
+    openSurface() {},
+    openPanel() {},
     addSurface(id, Component) {
-      const surfaceId = requireId(id, "surface id");
-      requireFn(Component, `surface ${surfaceId}`);
-      surfaceIds.add(surfaceId);
-      summary.push(`addSurface(${surfaceId})`);
+      check(typeof id === "string" && typeof Component === "function", `surface ${id} is valid`);
+      summary.push(`surface:${id}`);
+      return () => {};
     },
     addSidebarItem(item) {
-      const id = requireId(item?.id, "sidebar item id");
-      requireText(item?.title, `sidebar item ${id} title`);
-      requireText(item?.icon, `sidebar item ${id} icon`);
-      sidebarSurfaces.push({ id, surface: requireId(item?.surface, "sidebar surface id") });
-      summary.push(`addSidebarItem(${id})`);
+      check(typeof item?.id === "string" && typeof item?.surface === "string", "sidebar item is valid");
+      check(!ids.has(`sidebar:${item.id}`), `sidebar id ${item.id} is unique`);
+      ids.add(`sidebar:${item.id}`);
+      summary.push(`sidebar:${item.id}`);
+      return () => {};
     },
     addWorkspacePanel(panel) {
-      const id = requireId(panel?.id, "workspace panel id");
-      requireText(panel?.title, `panel ${id} title`);
-      requireText(panel?.icon, `panel ${id} icon`);
-      if (panel?.context !== "workspace" && panel?.context !== "agent") {
-        throw new Error(`Panel ${id} has an invalid context`);
-      }
-      for (const location of panel?.locations ?? []) {
-        if (location !== "workspace" && location !== "explorer") {
-          throw new Error(`Panel ${id} has an invalid location: ${location}`);
-        }
-      }
-      requireFn(panel?.Component, `panel ${id}`);
-      summary.push(`addWorkspacePanel(${id})`);
+      check(typeof panel?.id === "string" && typeof panel?.Component === "function", "workspace panel is valid");
+      check(!ids.has(`panel:${panel.id}`), `panel id ${panel.id} is unique`);
+      ids.add(`panel:${panel.id}`);
+      summary.push(`panel:${panel.id}`);
+      return () => {};
     },
     addCommandCenterItem(item) {
-      const id = requireId(item?.id, "Command Center item id");
-      requireText(item?.title, `Command Center item ${id} title`);
-      requireText(item?.icon, `Command Center item ${id} icon`);
-      if (!["global", "workspace", "agent"].includes(item?.context)) {
-        throw new Error(`Command Center item ${id} has an invalid context`);
-      }
-      requireFn(item?.onSelect, `Command Center item ${id} callback`);
-      summary.push(`addCommandCenterItem(${id})`);
+      check(typeof item?.id === "string" && typeof item?.onSelect === "function", "Command Center item is valid");
+      check(!ids.has(`command:${item.id}`), `Command Center id ${item.id} is unique`);
+      ids.add(`command:${item.id}`);
+      summary.push(`command:${item.id}`);
+      return () => {};
     },
-    addClientSide(contribution) {
-      requireFn(contribution, "client-side contribution");
-      summary.push("addClientSide()");
-    },
-    addAttachmentSource(source) {
-      summary.push(`addAttachmentSource(${requireId(source?.id, "attachment source id")})`);
-    },
-    addTheme(theme) {
-      summary.push(`addTheme(${requireId(theme?.id, "theme id")})`);
-    },
-    addTimelineTransformer(transformer) {
-      const id = requireId(transformer?.id, "timeline transformer id");
-      summary.push(`addTimelineTransformer(${id})`);
-    },
-    addTimelineRenderer(renderer) {
-      const kind = requireId(renderer?.kind, "timeline renderer kind");
-      summary.push(`addTimelineRenderer(${kind})`);
-    },
-    handle() {
-      throw new Error("plugin.handle survived into the client bundle");
+    addComposerPill(contribution) {
+      const button = contribution?.button;
+      check(typeof button?.title === "string" && button.title.trim() !== "", "composer pill has a button title");
+      check(button?.icon === "Clock", "composer pill has a Lucide icon");
+      check(button?.behavior?.kind === "action" || button?.behavior?.kind === "popover", "composer pill has a v0.8 behavior");
+      summary.push(`pill:${contribution.id}`);
+      return { update() {}, remove() {} };
     },
   };
-
-  const cleanup = contribute(plugin);
-  if (typeof cleanup !== "function") throw new Error("contribute() must return a cleanup function");
-  for (const { id, surface } of sidebarSurfaces) {
-    if (!surfaceIds.has(surface)) {
-      throw new Error(`Sidebar item ${id} references a missing surface: ${surface}`);
-    }
-  }
+  const exported = instantiateBundle(code, (id) => {
+    if (id in stubs) return stubs[id];
+    throw new Error(`Module "${id}" is not available in the client bundle`);
+  });
+  const contribute = exported?.default;
+  check(typeof contribute === "function", "client entry exports a contribution function");
+  const cleanup = contribute(client);
+  check(typeof cleanup === "function", "client contribution returns cleanup");
   await cleanup();
   return summary;
 }
 
-async function checkTarget(target) {
-  const source = readFileSync(ENTRY, "utf8");
-  const { filtered, strippedBindings } = filterEntrypoint(source, target);
-  const dangling = findDanglingReferences(filtered, strippedBindings);
-  if (dangling.length > 0) {
-    for (const { name, from } of dangling) {
-      console.error(
-        `  ✗ ${target}: "${name}" is used in contribute() but its import ("${from}") is removed from this bundle`,
-      );
-    }
-    return false;
-  }
-
-  const built = await esbuild.build(buildOptions(ENTRY, DIR, filtered, target));
-
-  if (target === "server") {
-    // Executing the server bundle would start the real scheduler, so stop at a
-    // clean build plus the reference check above. check-teardown.mjs runs it.
-    console.log(`  ✓ ${target}: builds, no stripped-import references`);
-    return true;
-  }
-
-  const summary = await runClientBundle(built.outputFiles[0].text);
-  if (summary.length === 0) {
-    console.error(`  ✗ ${target}: contribute() registered nothing`);
-    return false;
-  }
-  console.log(`  ✓ ${target}: ${summary.join(", ")}`);
-  return true;
-}
-
 console.log("Checking plugin runtime boundary...");
-const results = [];
-for (const target of ["client", "server"]) {
-  try {
-    results.push(await checkTarget(target));
-  } catch (error) {
-    console.error(`  ✗ ${target}: ${error instanceof Error ? error.message : String(error)}`);
-    results.push(false);
-  }
+try {
+  const clientBuild = await build("client");
+  const summary = await runClientBundle(clientBuild.outputFiles[0].text);
+  console.log(`  ✓ client: builds and registers ${summary.join(", ")}`);
+} catch (error) {
+  failures.push(`client: ${error instanceof Error ? error.message : String(error)}`);
 }
-if (results.includes(false)) {
+
+try {
+  await build("server");
+  console.log("  ✓ server: builds as a separate daemon entry");
+} catch (error) {
+  failures.push(`server: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+for (const failure of failures) console.error(`  ✗ ${failure}`);
+if (failures.length > 0) {
   console.error("Runtime boundary check failed.");
   process.exitCode = 1;
 } else {

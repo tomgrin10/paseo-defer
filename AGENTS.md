@@ -2,21 +2,21 @@
 
 ## Project
 
-- This is the trusted, unsandboxed Paseo plugin `paseo-defer`; minimum supported Paseo is 0.7.0.
-- Check the current plugin docs at `https://paseo.sh/docs/plugins.md` and `https://paseo.sh/docs/plugins/reference.md` before changing runtime code.
+- This is the trusted, unsandboxed Paseo plugin `paseo-defer`; minimum supported Paseo is 0.8.0.
+- Check the current plugin docs at `https://paseo.sh/docs/plugins.md` and `https://paseo.sh/docs/plugins/v0.8/reference.md` before changing runtime code.
 - Never commit credentials, queued messages, daemon configuration, logs, or local paths.
 
 ## Code boundaries
 
-- Keep `index.ts` focused on contribution wiring.
+- Keep `index.client.tsx` and `index.server.ts` focused on contribution wiring.
 - `*.client.tsx`: React Native UI and client hooks. Use `theme.colors` for text/backgrounds and `layout.compact` for responsive spacing.
 - `*.server.ts`: Node APIs, filesystem access, daemon connections, and backend behavior.
 - `*.shared.ts`: Zod RPC contracts and plain values safe in both runtimes.
-- `pill.client.tsx` owns the composer pill and its `addClientSide` entrypoint. Under the default `pillMode: "always"` it keeps one registration per *live session* — not per queue — because the pill is the plugin's only in-session UI: Paseo's new-tab launcher lists workspace-context panels only, so an agent-context panel is otherwise reachable from the command centre alone. Under `pillMode: "waiting"` only a session with a queue carries one. The entrypoint therefore tracks the agent stream itself and must drop a registration when a session closes, is removed, or moves workspace (the workspace is baked into the registration and cannot be patched).
-- A `sessionReset` item is anchored to the provider's reported window end, which is re-derived on every upstream read and so differs by milliseconds between reads of the *same* window. Compare those instants with `SAME_WINDOW_MS` of slack, never as strings or for exact equality; a real rollover moves the end by hours. Normalize any provider timestamp through `daemon.server.ts`'s single entry point so one shape reaches the queue.
-- Timing lives in `format.shared.ts`, parsers included, so both runtimes and every check read the same rules. Anything user-facing must go through `formatClock`, which follows the device's own 12- or 24-hour convention; never hard-code a 24-hour string, and keep `formatDuration` output parseable by `parseDuration`, since an edit round-trips a typed wait through its own label to avoid re-anchoring it.
-- `refresh.client.ts` is the in-app notifier between the Defer views and the pill. Paseo has no server-to-client push for plugin state, so a mutation must call `notifyDeferChanged()` or the pill stays stale for a poll interval.
-- Add nothing to `dependencies`. The server bundle must compile with no installed packages or `paseo plugin add` breaks; `daemon.server.ts` borrows Paseo's daemon client from the host through a runtime `require` for exactly that reason. `check-gitinstall.mjs` enforces it.
+- `client/pill.tsx` owns the composer pill and its `addComposerPill` entrypoint. Under the default `pillMode: "always"` it keeps one registration per *live session* — not per queue — because the pill is the plugin's only in-session UI: Paseo's new-tab launcher lists workspace-context panels only, so an agent-context panel is otherwise reachable from the command centre alone. Under `pillMode: "waiting"` only a session with a queue carries one. The entrypoint therefore tracks the agent stream itself and must drop a registration when a session closes, is removed, or moves workspace (the workspace is baked into the registration and cannot be patched).
+- A `sessionReset` item is anchored to the provider's reported window end, which is re-derived on every upstream read and so differs by milliseconds between reads of the *same* window. Compare those instants with `SAME_WINDOW_MS` of slack, never as strings or for exact equality; a real rollover moves the end by hours. Normalize any provider timestamp through `server/daemon.ts`'s single entry point so one shape reaches the queue.
+- Timing lives in `shared/format.ts`, parsers included, so both runtimes and every check read the same rules. Anything user-facing must go through `formatClock`, which follows the device's own 12- or 24-hour convention; never hard-code a 24-hour string, and keep `formatDuration` output parseable by `parseDuration`, since an edit round-trips a typed wait through its own label to avoid re-anchoring it.
+- `client/refresh.ts` is the in-app notifier between the Defer views and the pill. Paseo has no server-to-client push for plugin state, so a mutation must call `notifyDeferChanged()` or the pill stays stale for a poll interval.
+- Add nothing to `dependencies`. The server bundle must compile with no installed packages or `paseo plugin add` breaks; `server/daemon.ts` borrows Paseo's daemon client from the host through a runtime `require` for exactly that reason. `check-gitinstall.mjs` enforces it.
 - Preserve the versioned `queue.json` and `settings.json` schemas and the `$PASEO_HOME/plugin-data/defer` data path; add migrations for incompatible changes. Paseo has no plugin-settings API, so preferences are the plugin's own file, carried to clients on `defer.list` because the pill already polls it.
 - Keep daemon connections short-lived and ensure every timer/resource is released by plugin cleanup. Do not log secrets or message bodies.
 - Do not restart the daemon to load changes, and do not enable plugins or edit Paseo daemon config without explicit permission. The web-UI check in `Verify changes` needs no config change: its loopback origin is a permanent allowlist entry.

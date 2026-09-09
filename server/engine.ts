@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { store } from "./store.server";
+import { store } from "./store";
 import {
   clearCaches,
   fetchSessionResetsAt,
   readAgentStates,
   withDaemon,
-} from "./daemon.server";
-import { lifecycle } from "./lifecycle.shared";
-import type { Deferred, Trigger } from "./defer.shared";
+} from "./daemon";
+import { lifecycle } from "../shared/lifecycle";
+import type { Deferred, Trigger } from "../shared/defer";
 
 const TICK_MS = 15_000;
 
@@ -178,12 +178,10 @@ async function flush(): Promise<void> {
 /**
  * Starts the scheduler as an import side effect and registers its teardown.
  *
- * `contribute()` cannot call this: Paseo strips `*.server` imports from the
- * client bundle while keeping surrounding statements, so a server identifier in
- * that shared body becomes a ReferenceError that aborts every registration.
- * Teardown still has to run from `contribute()`'s cleanup, or the interval keeps
- * the subprocess alive and Paseo's stop step hangs, which wedges reload. The
- * shared `lifecycle` object bridges the two safely.
+ * The server entry imports this module for its side effect. Teardown still has
+ * to run from the entry cleanup, or the interval keeps the subprocess alive and
+ * Paseo's stop step hangs, which wedges reload. The shared `lifecycle` object
+ * bridges the engine and the entry cleanly.
  */
 function startEngine(): void {
   let running = false;
