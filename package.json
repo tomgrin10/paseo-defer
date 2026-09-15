@@ -16,7 +16,7 @@
     "verify": "npm run typecheck && npm test"
   },
   "devDependencies": {
-    "@babel/parser": "^8.0.4",
+    "@babel/parser": "^8.0.5",
     "@getpaseo/client": "0.8.0",
     "@getpaseo/plugin": "0.8.0",
     "@getpaseo/protocol": "0.8.0",
