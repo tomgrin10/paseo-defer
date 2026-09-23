@@ -214,8 +214,13 @@ function createFakeClient({ items, agents, pillMode }) {
   const opened = [];
   const created = [];
   let agentHandler = null;
+  let observationHandler = null;
   let unsubscribed = false;
+  let observationSubscribed = false;
+  let observationListenerRemoved = false;
+  let observationReleased = false;
   let listCalls = 0;
+  let lastListOptions;
   return {
     pills,
     opened,
@@ -226,11 +231,32 @@ function createFakeClient({ items, agents, pillMode }) {
     get unsubscribed() {
       return unsubscribed;
     },
+    get observationReleased() {
+      return observationReleased;
+    },
+    get observationSubscribed() {
+      return observationSubscribed;
+    },
+    get observationListenerRemoved() {
+      return observationListenerRemoved;
+    },
+    get lastListOptions() {
+      return lastListOptions;
+    },
     emitAgent(agent) {
       agentHandler?.({ kind: "upsert", agent });
+      observationHandler?.update({ type: "agent_update", payload: { kind: "upsert", agent } });
     },
     emitRemove(agentId) {
       agentHandler?.({ kind: "remove", agentId });
+      observationHandler?.update({ type: "agent_update", payload: { kind: "remove", agentId } });
+    },
+    emitObservationSnapshot(nextAgents) {
+      observationHandler?.snapshot({
+        requestId: "req",
+        entries: nextAgents.map((agent) => ({ agent })),
+        pageInfo: {},
+      });
     },
     client: {
       paseo: {
@@ -239,11 +265,30 @@ function createFakeClient({ items, agents, pillMode }) {
             agentHandler = handler;
             return () => {
               unsubscribed = true;
+              agentHandler = null;
             };
           },
-          async list() {
+          async list(options) {
             listCalls += 1;
-            return { requestId: "req", entries: agents().map((agent) => ({ agent })), pageInfo: {} };
+            lastListOptions = options;
+            return {
+              requestId: "req",
+              entries: agents().map((agent) => ({ agent })),
+              pageInfo: {},
+              subscription: {
+                subscribe(observer) {
+                  observationSubscribed = true;
+                  observationHandler = observer;
+                  return () => {
+                    observationListenerRemoved = true;
+                    observationHandler = null;
+                  };
+                },
+                async release() {
+                  observationReleased = true;
+                },
+              },
+            };
           },
         },
       },
@@ -350,6 +395,11 @@ try {
   const cleanup = graph.contributeClient(fake.client);
   check(typeof cleanup === "function", "the entrypoint returns a cleanup function");
   await wait(50);
+  check(
+    fake.lastListOptions?.subscribe !== undefined,
+    "the agent directory is observed, so sessions created after plugin load keep arriving",
+  );
+  check(fake.observationSubscribed, "the owned observation supplies reconnect snapshots and updates");
 
   // Every live session gets a pill, queue or no queue: it is the plugin's only
   // in-session affordance, and without it Defer is command-centre-only.
@@ -529,6 +579,15 @@ try {
   await wait(50);
   check(live(fake).length === 2, "a repeated agent update registers nothing new");
 
+  // Reconnects deliver a replacement snapshot through the owned observation.
+  // Anything absent from it is no longer live and must not keep a stale pill.
+  fake.emitObservationSnapshot([agents[0]]);
+  await wait(50);
+  check(live(fake).length === 1, "a reconnect snapshot replaces stale session placements");
+  fake.emitAgent(agents[1]);
+  await wait(50);
+  check(live(fake).length === 2, "agent updates continue after a reconnect snapshot");
+
   // Settling every message must leave the button behind, not remove the pill.
   items = items.map((item) => ({ ...item, state: "sent", settledAt: new Date().toISOString() }));
   graph.notifyDeferChanged();
@@ -599,6 +658,8 @@ try {
   await cleanup();
   check(live(fake).length === 0, "cleanup removes every pill");
   check(fake.unsubscribed, "cleanup unsubscribes from agent updates");
+  check(fake.observationListenerRemoved, "cleanup removes the owned observation listener");
+  check(fake.observationReleased, "cleanup releases the owned agent observation");
   check(timers.live.size === 0, "cleanup releases every timer");
 
   // Nothing may reach Paseo after teardown.

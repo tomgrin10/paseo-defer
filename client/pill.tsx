@@ -426,6 +426,9 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
   let running = false;
   let queued = false;
   let listedSessions = false;
+  let releaseAgentObservation: (() => Promise<void>) | null = null;
+  let unsubscribeAgentObservation: (() => void) | null = null;
+  let unsubscribeAgents: (() => void) | null = null;
   let debounce: ReturnType<typeof setTimeout> | null = null;
   /** Dismissal for a pressed preview; owned here so cleanup can release it. */
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
@@ -518,6 +521,27 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
     return sessions.delete(agentId);
   }
 
+  type AgentUpdate = Parameters<Parameters<typeof client.paseo.agents.subscribe>[0]>[0];
+
+  function applyAgentUpdate(update: AgentUpdate): void {
+    if (stopped) return;
+    if (update.kind === "remove") {
+      if (drop(update.agentId)) reconcilePills();
+      return;
+    }
+    const place = placement(update.agent);
+    if (place === null) {
+      // Reaches here for a session that just closed, which must lose its pill.
+      const agentId = update.agent?.id;
+      if (typeof agentId === "string" && drop(agentId)) reconcilePills();
+      return;
+    }
+    // Agents upsert on every status change; only a placement change matters.
+    if (sessions.get(place.agentId) === place.workspaceId) return;
+    sessions.set(place.agentId, place.workspaceId);
+    reconcilePills();
+  }
+
   /** Whether this session should be carrying a pill right now. */
   function wanted(agentId: string): boolean {
     if (!sessions.has(agentId)) return false;
@@ -594,8 +618,29 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
   }
 
   async function loadSessions(): Promise<void> {
-    const listed = await client.paseo.agents.list();
-    if (stopped) return;
+    // `agents.subscribe()` is a local listener only. Since Paseo 0.9 it does
+    // not ask the daemon to observe the directory, so a plain list followed by
+    // subscribe misses every agent created after plugin load. Own an observed
+    // list; this also works on 0.8, whose result simply lacks the releasable
+    // subscription handle.
+    const listed = await client.paseo.agents.list({ subscribe: {} });
+    const owned = listed as typeof listed & {
+      subscription?: {
+        subscribe(observer: {
+          snapshot(snapshot: typeof listed): void;
+          update(message: unknown): void;
+          error?(error: unknown): void;
+        }): () => void;
+        release(): Promise<void>;
+      };
+    };
+    const observation = owned.subscription;
+    const release = observation ? () => observation.release() : null;
+    if (stopped) {
+      await release?.();
+      return;
+    }
+    releaseAgentObservation = release;
     sessions.clear();
     for (const entry of listed.entries) {
       const place = placement(entry.agent ?? {});
@@ -603,6 +648,30 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
       sessions.set(place.agentId, place.workspaceId);
     }
     listedSessions = true;
+    // Current SDKs deliver a replacement snapshot here after reconnect, then
+    // the updates scoped to this exact observation. Older 0.8 SDKs expose only
+    // the list snapshot, so the local listener below remains the fallback.
+    if (observation) {
+      unsubscribeAgentObservation = observation.subscribe({
+        snapshot(snapshot) {
+          if (stopped) return;
+          sessions.clear();
+          for (const entry of snapshot.entries) {
+            const place = placement(entry.agent ?? {});
+            if (place !== null) sessions.set(place.agentId, place.workspaceId);
+          }
+          reconcilePills();
+        },
+        update(message) {
+          const event = message as { type?: string; payload?: AgentUpdate };
+          if (event.type === "agent_update" && event.payload) applyAgentUpdate(event.payload);
+        },
+      });
+      // The owned stream now covers this directory. Keep the local listener
+      // only as the compatibility path for SDKs that return no handle.
+      unsubscribeAgents?.();
+      unsubscribeAgents = null;
+    }
   }
 
   async function sync(): Promise<void> {
@@ -648,40 +717,29 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
     }, DEBOUNCE_MS);
   }
 
-  const unsubscribeAgents = client.paseo.agents.subscribe((update) => {
-    if (stopped) return;
-    if (update.kind === "remove") {
-      if (drop(update.agentId)) reconcilePills();
-      return;
-    }
-    const place = placement(update.agent);
-    if (place === null) {
-      // Reaches here for a session that just closed, which must lose its pill.
-      const agentId = update.agent?.id;
-      if (typeof agentId === "string" && drop(agentId)) reconcilePills();
-      return;
-    }
-    // Agents upsert on every status change; only a placement change matters.
-    if (sessions.get(place.agentId) === place.workspaceId) return;
-    sessions.set(place.agentId, place.workspaceId);
-    reconcilePills();
-  });
+  unsubscribeAgents = client.paseo.agents.subscribe(applyAgentUpdate);
 
   const unsubscribeChanges = onDeferChanged(scheduleSync);
   const timer = setInterval(() => void sync(), POLL_MS);
   void sync();
 
-  return () => {
+  return async () => {
     stopped = true;
     clearInterval(timer);
     if (debounce !== null) clearTimeout(debounce);
     clearPreviewTimer();
     unsubscribeChanges();
-    unsubscribeAgents();
+    unsubscribeAgents?.();
+    unsubscribeAgents = null;
+    unsubscribeAgentObservation?.();
+    unsubscribeAgentObservation = null;
     for (const entry of registered.values()) entry.pill.remove();
     registered.clear();
     sessions.clear();
     store.hidePreview();
     store.replaceItems(new Map());
+    const release = releaseAgentObservation;
+    releaseAgentObservation = null;
+    await release?.();
   };
 }

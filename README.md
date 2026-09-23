@@ -34,13 +34,13 @@ When a message becomes due, paseo-defer waits for the target agent to become idl
 Install from npm on Paseo 0.9.0 or newer:
 
 ```bash
-paseo plugin install npm:paseo-defer
+paseo plugin install npm:paseo-defer@2.1.8
 ```
 
 Paseo 0.8 can install the same plugin from Git:
 
 ```bash
-paseo plugin add tomgrin10/paseo-defer
+paseo plugin add tomgrin10/paseo-defer --ref v2.1.8
 ```
 
 Then open a session and press the **Defer** pill above the composer, or press **⌘K** (**Ctrl+K** on Windows/Linux) and choose **Defer a message**.
