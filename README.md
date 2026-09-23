@@ -1,8 +1,8 @@
 # paseo-defer
 
-[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.8.0-8A63D2?style=for-the-badge)](https://paseo.sh)
+[![npm version](https://img.shields.io/npm/v/paseo-defer?style=for-the-badge&color=cb3837)](https://www.npmjs.com/package/paseo-defer)
 [![npm downloads](https://img.shields.io/npm/dm/paseo-defer?style=for-the-badge&color=cb3837)](https://www.npmjs.com/package/paseo-defer)
-[![Release](https://img.shields.io/github/v/release/tomgrin10/paseo-defer?display_name=tag&sort=semver&style=for-the-badge&label=release&color=6366f1)](https://github.com/tomgrin10/paseo-defer/releases/latest)
+[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.8.0-8A63D2?style=for-the-badge)](https://paseo.sh)
 [![License](https://img.shields.io/github/license/tomgrin10/paseo-defer?style=for-the-badge&color=2563eb)](LICENSE)
 
 A trusted local [Paseo](https://paseo.sh) plugin for queuing a message to an agent and delivering it later.
@@ -84,6 +84,14 @@ For a password-protected daemon, set the standard `PASEO_PASSWORD` environment v
 Carrying the prompt box across — into the panel, or onto the card's chips — reads the app's own composer-draft storage in the client, for the one session whose **Defer** you pressed and only at that moment. Nothing about it is written, stored, or sent anywhere: the text goes into the message box in front of you, and reaches the daemon only if you queue it.
 
 Delivery and the provider usage-window read both go through Paseo's own daemon client, which the plugin borrows from the host at runtime rather than bundling. That keeps the plugin's protocol version identical to the daemon's. Paseo's public plugin SDK does not expose `provider.usage.list`, so this is the only route to the rolling usage window.
+
+## More Paseo plugins
+
+Also available from [Tom Gringauz](https://github.com/tomgrin10):
+
+- [Graphite](https://www.npmjs.com/package/paseo-graphite) — Monitor Graphite stacks and PR action state.
+- [Smart Session](https://www.npmjs.com/package/paseo-smart-session) — Context-aware compaction and usage insights for long-running agents.
+- [Vitals](https://www.npmjs.com/package/paseo-vitals) — Host, Paseo, agent, and Docker health in one dashboard.
 
 ## License
 

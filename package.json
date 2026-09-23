@@ -1,7 +1,7 @@
 {
   "name": "paseo-defer",
   "type": "module",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "license": "MIT",
   "description": "Defer messages to Paseo coding agents until a chosen time or usage-window reset.",
   "repository": {
