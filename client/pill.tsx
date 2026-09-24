@@ -12,6 +12,7 @@ import {
   type Trigger,
 } from "../shared/defer";
 import { pillLabel, queuedLabel, stateLabel } from "../shared/format";
+import { canObserveAgents, followAgents, type AgentList, type AgentUpdate } from "./agents";
 import { offerComposerDraft, readComposerDraft } from "./handoff";
 import { DeferPopoverContent } from "./popover";
 import { notifyDeferChanged, onDeferChanged } from "./refresh";
@@ -426,9 +427,10 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
   let running = false;
   let queued = false;
   let listedSessions = false;
-  let releaseAgentObservation: (() => Promise<void>) | null = null;
-  let unsubscribeAgentObservation: (() => void) | null = null;
-  let unsubscribeAgents: (() => void) | null = null;
+  /** A 0.9 observation keeps `sessions` itself; 0.8 reads once, then listens. */
+  const observing = canObserveAgents(client.paseo);
+  /** Whether `pillMode` and the queue have been read at least once. */
+  let readQueue = false;
   let debounce: ReturnType<typeof setTimeout> | null = null;
   /** Dismissal for a pressed preview; owned here so cleanup can release it. */
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
@@ -521,8 +523,6 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
     return sessions.delete(agentId);
   }
 
-  type AgentUpdate = Parameters<Parameters<typeof client.paseo.agents.subscribe>[0]>[0];
-
   function applyAgentUpdate(update: AgentUpdate): void {
     if (stopped) return;
     if (update.kind === "remove") {
@@ -539,7 +539,10 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
     // Agents upsert on every status change; only a placement change matters.
     if (sessions.get(place.agentId) === place.workspaceId) return;
     sessions.set(place.agentId, place.workspaceId);
-    reconcilePills();
+    // The queue read supplies the saved pill mode. Before it completes the
+    // in-memory default is "always", so reconciling an early update would
+    // briefly flash a pill for users configured for waiting-only mode.
+    if (readQueue) reconcilePills();
   }
 
   /** Whether this session should be carrying a pill right now. */
@@ -617,30 +620,7 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
     }
   }
 
-  async function loadSessions(): Promise<void> {
-    // `agents.subscribe()` is a local listener only. Since Paseo 0.9 it does
-    // not ask the daemon to observe the directory, so a plain list followed by
-    // subscribe misses every agent created after plugin load. Own an observed
-    // list; this also works on 0.8, whose result simply lacks the releasable
-    // subscription handle.
-    const listed = await client.paseo.agents.list({ subscribe: {} });
-    const owned = listed as typeof listed & {
-      subscription?: {
-        subscribe(observer: {
-          snapshot(snapshot: typeof listed): void;
-          update(message: unknown): void;
-          error?(error: unknown): void;
-        }): () => void;
-        release(): Promise<void>;
-      };
-    };
-    const observation = owned.subscription;
-    const release = observation ? () => observation.release() : null;
-    if (stopped) {
-      await release?.();
-      return;
-    }
-    releaseAgentObservation = release;
+  function replaceSessions(listed: AgentList): void {
     sessions.clear();
     for (const entry of listed.entries) {
       const place = placement(entry.agent ?? {});
@@ -648,30 +628,12 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
       sessions.set(place.agentId, place.workspaceId);
     }
     listedSessions = true;
-    // Current SDKs deliver a replacement snapshot here after reconnect, then
-    // the updates scoped to this exact observation. Older 0.8 SDKs expose only
-    // the list snapshot, so the local listener below remains the fallback.
-    if (observation) {
-      unsubscribeAgentObservation = observation.subscribe({
-        snapshot(snapshot) {
-          if (stopped) return;
-          sessions.clear();
-          for (const entry of snapshot.entries) {
-            const place = placement(entry.agent ?? {});
-            if (place !== null) sessions.set(place.agentId, place.workspaceId);
-          }
-          reconcilePills();
-        },
-        update(message) {
-          const event = message as { type?: string; payload?: AgentUpdate };
-          if (event.type === "agent_update" && event.payload) applyAgentUpdate(event.payload);
-        },
-      });
-      // The owned stream now covers this directory. Keep the local listener
-      // only as the compatibility path for SDKs that return no handle.
-      unsubscribeAgents?.();
-      unsubscribeAgents = null;
-    }
+  }
+
+  async function loadSessions(): Promise<void> {
+    const listed = await client.paseo.agents.list();
+    if (stopped) return;
+    replaceSessions(listed);
   }
 
   async function sync(): Promise<void> {
@@ -682,8 +644,9 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
     }
     running = true;
     try {
-      // The subscription keeps the session set current afterwards.
-      if (!listedSessions) await loadSessions();
+      // The subscription keeps the session set current afterwards. An
+      // observation brings its own snapshot, so only the legacy path reads.
+      if (!listedSessions && !observing) await loadSessions();
       const { items, settings } = await client.rpc(listDeferred, {});
       if (stopped) return;
       pillMode = settings.pillMode;
@@ -695,6 +658,7 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
         else existing.push(item);
       }
       store.replaceItems(byAgent);
+      readQueue = true;
       reconcilePills();
     } catch (error) {
       // A failed read must not kill the entrypoint: the interval retries, and
@@ -717,29 +681,37 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
     }, DEBOUNCE_MS);
   }
 
-  unsubscribeAgents = client.paseo.agents.subscribe(applyAgentUpdate);
+  const unsubscribeAgents = followAgents(
+    client.paseo,
+    {
+      // First delivery and every reconnect: the snapshot is the whole truth.
+      // Before the first queue read, that read reconciles instead, so a
+      // waiting-only pill mode never flashes a button on every session.
+      snapshot(listed) {
+        if (stopped) return;
+        replaceSessions(listed);
+        if (readQueue) reconcilePills();
+      },
+      update: applyAgentUpdate,
+    },
+    () => client.paseo.agents.subscribe(applyAgentUpdate),
+  );
 
   const unsubscribeChanges = onDeferChanged(scheduleSync);
   const timer = setInterval(() => void sync(), POLL_MS);
   void sync();
 
-  return async () => {
+  return () => {
     stopped = true;
     clearInterval(timer);
     if (debounce !== null) clearTimeout(debounce);
     clearPreviewTimer();
     unsubscribeChanges();
-    unsubscribeAgents?.();
-    unsubscribeAgents = null;
-    unsubscribeAgentObservation?.();
-    unsubscribeAgentObservation = null;
+    unsubscribeAgents();
     for (const entry of registered.values()) entry.pill.remove();
     registered.clear();
     sessions.clear();
     store.hidePreview();
     store.replaceItems(new Map());
-    const release = releaseAgentObservation;
-    releaseAgentObservation = null;
-    await release?.();
   };
 }

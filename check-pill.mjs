@@ -340,6 +340,223 @@ function createFakeClient({ items, agents, pillMode }) {
 
 const live = (fake) => fake.pills.filter((entry) => !entry.removed);
 
+/**
+ * A Paseo 0.9 client: `agents.subscribe()` alone hears nothing there, and the
+ * agent feed comes from an observation opened with `list({ subscribe: {} })`.
+ * The observation hands a new subscriber its current snapshot, as Paseo does,
+ * and hands a fresh one again after a reconnect.
+ */
+function createObservingClient({ agents, items, pillMode, queueDelayMs = 0, listDelayMs = 0 }) {
+  const pills = [];
+  const lists = [];
+  let observer = null;
+  let released = 0;
+  let detached = 0;
+  let listened = false;
+  const snapshotOf = (list) => ({
+    requestId: "req",
+    subscriptionId: "sub",
+    entries: list.map((agent) => ({ agent })),
+    pageInfo: { hasMore: false, nextCursor: null },
+  });
+  return {
+    pills,
+    lists,
+    get released() {
+      return released;
+    },
+    get listened() {
+      return listened;
+    },
+    get detached() {
+      return detached;
+    },
+    reconnect(list) {
+      observer?.snapshot(snapshotOf(list));
+    },
+    update(payload) {
+      observer?.update({ type: "agent_update", payload });
+    },
+    fail(error) {
+      const current = observer;
+      observer = null;
+      current?.error?.(error);
+    },
+    client: {
+      paseo: {
+        observeEvents() {},
+        agents: {
+          subscribe() {
+            listened = true;
+            return () => undefined;
+          },
+          async list(options) {
+            lists.push(options);
+            if (!options?.subscribe) throw new Error("an observing client made a plain agent read");
+            // Intentionally ignore the abort signal here. A compatibility
+            // layer or an already-completing request can still resolve after
+            // teardown, and that late observation must be released.
+            if (listDelayMs > 0) await new Promise((r) => globalThis.setTimeout(r, listDelayMs));
+            return {
+              ...snapshotOf(agents()),
+              subscription: {
+                subscribe(next) {
+                  observer = next;
+                  next.snapshot(snapshotOf(agents()));
+                  return () => {
+                    detached += 1;
+                    if (observer === next) observer = null;
+                  };
+                },
+                async release() {
+                  released += 1;
+                  observer = null;
+                },
+              },
+            };
+          },
+        },
+      },
+      async rpc(contract) {
+        if (contract.name !== "defer.list") throw new Error(`unexpected rpc ${contract.name}`);
+        if (queueDelayMs > 0) await new Promise((r) => globalThis.setTimeout(r, queueDelayMs));
+        return { items: items(), sessionResetsAt: null, usageError: null, settings: { pillMode: pillMode() } };
+      },
+      openSurface() {},
+      openPanel() {},
+      addComposerPill(contribution) {
+        const entry = { contribution, removed: false };
+        pills.push(entry);
+        return {
+          update(patch) {
+            contribution.button = { ...contribution.button, ...patch };
+          },
+          remove() {
+            entry.removed = true;
+          },
+        };
+      },
+    },
+  };
+}
+
+/** How long the entrypoint waits before reopening a failed observation, first time round. */
+const REOPEN_MS = 2_000;
+
+async function checkObservingClient() {
+  const graph = await loadClientGraph();
+  const ids = (fake) =>
+    live(fake)
+      .map((entry) => `${entry.contribution.agentId}@${entry.contribution.workspaceId}`)
+      .sort()
+      .join(",");
+
+  let agents = [
+    { id: "agent-1", workspaceId: "ws-1", status: "idle" },
+    { id: "agent-2", workspaceId: "ws-2", status: "idle" },
+  ];
+  const fake = createObservingClient({ agents: () => agents, items: () => [], pillMode: () => "always" });
+  const cleanup = graph.contributeClient(fake.client);
+  await wait(50);
+
+  check(fake.lists.length === 1, "0.9: one observation is opened");
+  check(
+    fake.lists[0]?.subscribe !== undefined && fake.lists[0]?.signal instanceof AbortSignal,
+    "0.9: the agent read asks for an observation and passes an abort signal",
+  );
+  check(!fake.listened, "0.9: no bare agents.subscribe listener, which would hear nothing");
+  check(ids(fake) === "agent-1@ws-1,agent-2@ws-2", "0.9: the snapshot puts a pill on every live session");
+
+  // A session created after load: the case that used to need a plugin reload.
+  fake.update({ kind: "upsert", agent: { id: "agent-3", workspaceId: "ws-3", status: "initializing" } });
+  await wait(50);
+  check(ids(fake).includes("agent-3@ws-3"), "0.9: a new session gets its pill from the observation");
+  const registrations = fake.pills.length;
+  fake.update({ kind: "upsert", agent: { id: "agent-3", workspaceId: "ws-3", status: "running" } });
+  await wait(50);
+  check(fake.pills.length === registrations, "0.9: a turn in the same workspace registers nothing new");
+
+  fake.update({ kind: "remove", agentId: "agent-2" });
+  await wait(50);
+  check(!ids(fake).includes("agent-2"), "0.9: a removed session loses its pill");
+
+  // After a reconnect the snapshot replaces the view, including what it no longer lists.
+  fake.reconnect([
+    { id: "agent-1", workspaceId: "ws-1", status: "idle" },
+    { id: "agent-4", workspaceId: "ws-4", status: "idle" },
+  ]);
+  await wait(50);
+  check(ids(fake) === "agent-1@ws-1,agent-4@ws-4", "0.9: a reconnect snapshot rebuilds the pill set");
+
+  // Paseo releases an observation whose re-request fails; it has to come back.
+  const warn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    agents = [{ id: "agent-5", workspaceId: "ws-5", status: "idle" }];
+    fake.fail(new Error("reconnect request failed"));
+    await wait(REOPEN_MS + 200);
+  } finally {
+    console.warn = warn;
+  }
+  check(
+    warnings.some((line) => line.includes("agent observation failed")),
+    "0.9: a failed observation is reported",
+  );
+  check(fake.lists.length === 2, "0.9: a failed observation is reopened");
+  check(ids(fake) === "agent-5@ws-5", "0.9: the reopened observation's snapshot is applied");
+
+  await cleanup();
+  check(live(fake).length === 0, "0.9: cleanup removes every pill");
+  check(fake.lists.every((options) => options.signal.aborted), "0.9: cleanup aborts the observation");
+  check(fake.detached === 2, "0.9: failure and cleanup detach both local observation listeners");
+  check(fake.released >= 1, "0.9: cleanup releases the observation");
+  check(timers.live.size === 0, "0.9: cleanup releases every timer");
+  const afterTeardown = fake.pills.length;
+  fake.update({ kind: "upsert", agent: { id: "agent-6", workspaceId: "ws-6", status: "idle" } });
+  await wait(50);
+  check(fake.pills.length === afterTeardown, "0.9: an update after cleanup registers nothing");
+
+  // Waiting-only mode: the snapshot can beat the first queue read, and must not
+  // flash a button pill on every session while that read is in flight.
+  const quiet = createObservingClient({
+    agents: () => [{ id: "agent-1", workspaceId: "ws-1", status: "idle" }],
+    items: () => [],
+    pillMode: () => "waiting",
+    queueDelayMs: 100,
+  });
+  const stopQuiet = graph.contributeClient(quiet.client);
+  await wait(20);
+  quiet.update({
+    kind: "upsert",
+    agent: { id: "agent-2", workspaceId: "ws-2", status: "initializing" },
+  });
+  await wait(20);
+  check(
+    quiet.pills.length === 0,
+    "0.9: an agent update before the queue read cannot flash an always-mode pill",
+  );
+  await wait(300);
+  check(quiet.pills.length === 0, "0.9: waiting-only mode never registers a pill for an empty queue");
+  await stopQuiet();
+  check(timers.live.size === 0, "0.9: the waiting-only entrypoint releases every timer");
+
+  // Cleanup can win the race with the initial list request. If that request
+  // still resolves, its newly-created subscription must not be orphaned.
+  const late = createObservingClient({
+    agents: () => [{ id: "agent-1", workspaceId: "ws-1", status: "idle" }],
+    items: () => [],
+    pillMode: () => "always",
+    listDelayMs: 100,
+  });
+  const stopLate = graph.contributeClient(late.client);
+  await wait(20);
+  await stopLate();
+  await wait(150);
+  check(late.released === 1, "0.9: an observation resolving after cleanup is released");
+  check(timers.live.size === 0, "0.9: late-observation cleanup leaves no timer behind");
+}
+
 /** Stands in for the app's own draft store, which a press reads on the way out. */
 let composerDraft = "";
 Object.defineProperty(globalThis, "localStorage", {
@@ -396,10 +613,10 @@ try {
   check(typeof cleanup === "function", "the entrypoint returns a cleanup function");
   await wait(50);
   check(
-    fake.lastListOptions?.subscribe !== undefined,
-    "the agent directory is observed, so sessions created after plugin load keep arriving",
+    fake.lastListOptions === undefined,
+    "0.8: the compatibility path performs a plain agent read",
   );
-  check(fake.observationSubscribed, "the owned observation supplies reconnect snapshots and updates");
+  check(!fake.observationSubscribed, "0.8: the compatibility path opens no owned observation");
 
   // Every live session gets a pill, queue or no queue: it is the plugin's only
   // in-session affordance, and without it Defer is command-centre-only.
@@ -579,15 +796,6 @@ try {
   await wait(50);
   check(live(fake).length === 2, "a repeated agent update registers nothing new");
 
-  // Reconnects deliver a replacement snapshot through the owned observation.
-  // Anything absent from it is no longer live and must not keep a stale pill.
-  fake.emitObservationSnapshot([agents[0]]);
-  await wait(50);
-  check(live(fake).length === 1, "a reconnect snapshot replaces stale session placements");
-  fake.emitAgent(agents[1]);
-  await wait(50);
-  check(live(fake).length === 2, "agent updates continue after a reconnect snapshot");
-
   // Settling every message must leave the button behind, not remove the pill.
   items = items.map((item) => ({ ...item, state: "sent", settledAt: new Date().toISOString() }));
   graph.notifyDeferChanged();
@@ -657,9 +865,9 @@ try {
 
   await cleanup();
   check(live(fake).length === 0, "cleanup removes every pill");
-  check(fake.unsubscribed, "cleanup unsubscribes from agent updates");
-  check(fake.observationListenerRemoved, "cleanup removes the owned observation listener");
-  check(fake.observationReleased, "cleanup releases the owned agent observation");
+  check(fake.unsubscribed, "0.8: cleanup unsubscribes from local agent updates");
+  check(!fake.observationListenerRemoved, "0.8: cleanup has no observation listener to remove");
+  check(!fake.observationReleased, "0.8: cleanup has no observation to release");
   check(timers.live.size === 0, "cleanup releases every timer");
 
   // Nothing may reach Paseo after teardown.
@@ -668,6 +876,8 @@ try {
   fake.emitAgent({ id: "agent-5", workspaceId: "ws-5", status: "idle" });
   await wait(400);
   check(fake.pills.length === afterTeardown, "a notification after cleanup registers nothing");
+
+  await checkObservingClient();
 } catch (error) {
   failures.push(error instanceof Error ? (error.stack ?? error.message) : String(error));
 } finally {
@@ -683,4 +893,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log("  ✓ pill: registers per session, opens its panel, and releases everything on cleanup");
+console.log("  ✓ pill (0.9 observation): follows new sessions, rebuilds on reconnect, reopens after failure");
 process.exit(0);
