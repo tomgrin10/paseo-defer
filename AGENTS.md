@@ -155,7 +155,7 @@ Check both a light and a dark theme, and a narrow window for the compact layout.
 - Update the version in `package.json` and its lockfile, plus the pinned npm and Git versions in the README install section. Keep badge styles consistent; update the Paseo minimum only when compatibility changes.
 - Release notes must include a short summary, user-visible changes, the `paseo plugin add` install command, minimum Paseo version, and any breaking, migration, security, or upgrade considerations. Omit empty sections.
 - Before publishing, require a clean current `main`, verified GitHub and npm ownership, passing checks, `npm pack --dry-run`, a successful plugin reload, clean logs, and a secret audit of the exact release snapshot.
-- Publish the public package with `npm publish --access public`, then verify installation with `paseo plugin install npm:paseo-defer@X.Y.Z` on Paseo 0.9 or newer.
-- Tag the exact release commit as `vX.Y.Z`; title the release `paseo-defer vX.Y.Z`. After publishing, test the public tag-pinned installer and badge URLs.
+- Tag the exact release commit as `vX.Y.Z` and push the tag. `.github/workflows/publish-npm.yml` verifies that the tag matches `package.json`, reruns the release checks, inspects the package, and publishes through npm Trusted Publishing; do not run `npm publish` manually except to recover from a diagnosed workflow failure.
+- Wait for the publish workflow and npm registry propagation, then verify installation with `paseo plugin install npm:paseo-defer@X.Y.Z` on Paseo 0.9 or newer. Title the GitHub release `paseo-defer vX.Y.Z`, and test the public tag-pinned installer and badge URLs.
 
 Never move or rewrite a published tag. Ship corrections as a new patch release.
