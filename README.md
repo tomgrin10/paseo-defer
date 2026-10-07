@@ -34,7 +34,7 @@ When a message becomes due, paseo-defer waits for the target agent to become idl
 Install from npm on Paseo 0.9.0 or newer:
 
 ```bash
-paseo plugin install npm:paseo-defer@2.1.9
+paseo plugin install paseo-defer@2.1.9
 ```
 
 Paseo 0.8 can install the same plugin from Git:
