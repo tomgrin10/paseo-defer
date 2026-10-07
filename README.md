@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/paseo-defer?style=for-the-badge&color=cb3837)](https://www.npmjs.com/package/paseo-defer)
 [![npm downloads](https://img.shields.io/npm/dm/paseo-defer?style=for-the-badge&color=cb3837)](https://www.npmjs.com/package/paseo-defer)
-[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.8.0-8A63D2?style=for-the-badge)](https://paseo.sh)
+[![Paseo](https://img.shields.io/badge/Paseo-plugin-8A63D2?style=for-the-badge)](https://paseo.sh)
 [![License](https://img.shields.io/github/license/tomgrin10/paseo-defer?style=for-the-badge&color=2563eb)](LICENSE)
 
 A trusted local [Paseo](https://paseo.sh) plugin for queuing a message to an agent and delivering it later.
@@ -31,16 +31,10 @@ When a message becomes due, paseo-defer waits for the target agent to become idl
 
 ## Install
 
-Install from npm on Paseo 0.9.0 or newer:
+Install from npm using the latest Paseo release:
 
 ```bash
-paseo plugin install paseo-defer@2.1.9
-```
-
-Paseo 0.8 can install the same plugin from Git:
-
-```bash
-paseo plugin add tomgrin10/paseo-defer --ref v2.1.9
+paseo plugin install paseo-defer
 ```
 
 Then open a session and press the **Defer** pill above the composer, or press **⌘K** (**Ctrl+K** on Windows/Linux) and choose **Defer a message**.
@@ -89,9 +83,10 @@ Delivery and the provider usage-window read both go through Paseo's own daemon c
 
 Also available from [Tom Gringauz](https://github.com/tomgrin10):
 
-- [Graphite](https://www.npmjs.com/package/paseo-graphite) — Monitor Graphite stacks and PR action state.
-- [Smart Session](https://www.npmjs.com/package/paseo-smart-session) — Context-aware compaction and usage insights for long-running agents.
-- [Vitals](https://www.npmjs.com/package/paseo-vitals) — Host, Paseo, agent, and Docker health in one dashboard.
+- [Graphite](https://github.com/tomgrin10/paseo-graphite) — Monitor Graphite stacks and PR action state.
+- [Smart Session](https://github.com/tomgrin10/paseo-smart-session) — Context-aware compaction and usage insights for long-running agents.
+- [Vitals](https://github.com/tomgrin10/paseo-vitals) — Host, Paseo, agent, and Docker health in one dashboard.
+- [Send to Paseo](https://github.com/tomgrin10/send-to-paseo) — Send GitHub and Graphite PRs to Paseo from Chrome.
 
 ## License
 
