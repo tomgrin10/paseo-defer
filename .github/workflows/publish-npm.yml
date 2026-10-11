@@ -72,7 +72,7 @@ jobs:
             let error;
             try { error = JSON.parse(existing.stdout).error; } catch {}
             if (error?.code !== "E404") { process.stderr.write(existing.stderr); process.exit(1); }
-            const result = spawnSync("npm", ["publish", "--access", "public", "--registry", "https://registry.npmjs.org"], { stdio: "inherit" });
+            const result = spawnSync("npm", ["publish", "--access", "public", "--registry", "https://registry.npmjs.org", "--loglevel", "verbose"], { stdio: "inherit" });
             if (result.status !== 0) {
               console.error("::error::npm publication failed. Check this package's GitHub trusted publisher repository, workflow filename, permissions, and environment in npm Settings.");
               process.exit(result.status || 1);
