@@ -26,6 +26,11 @@ export class DeferredTimeline {
     return this.refresh();
   }
 
+  async visibleItems(): Promise<Deferred[]> {
+    const owned = new Set((await this.readJournal()).map(row => row.id));
+    return (await this.list()).filter(item => item.state === "pending" || item.state === "sending" || (item.state === "failed" && owned.has(item.id)));
+  }
+
   refresh(): Promise<void> {
     if (this.stopped || !this.api) return Promise.resolve();
     this.dirty = true;

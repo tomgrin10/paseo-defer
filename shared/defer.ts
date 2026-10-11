@@ -61,6 +61,12 @@ export const listSessions = defineRpc({
   output: z.object({ sessions: z.array(SessionSchema) }),
 });
 
+export const listTimelineDeferred = defineRpc({
+  name: "defer.timeline",
+  input: z.object({ agentId: z.string() }),
+  output: z.object({ items: z.array(DeferredSchema) }),
+});
+
 export const listDeferred = defineRpc({
   name: "defer.list",
   input: z.object({
@@ -110,6 +116,12 @@ export const cancelDeferred = defineRpc({
   name: "defer.cancel",
   input: z.object({ id: z.string() }),
   output: z.object({ ok: z.boolean() }),
+});
+
+export const deleteDeferred = defineRpc({
+  name: "defer.delete",
+  input: z.object({ id: z.string() }),
+  output: z.object({ ok: z.boolean(), error: z.string().nullable() }),
 });
 
 export const clearSettled = defineRpc({

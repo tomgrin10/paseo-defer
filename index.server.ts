@@ -3,8 +3,10 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import {
   cancelDeferred,
   clearSettled,
+  deleteDeferred,
   createDeferred,
   listDeferred,
+  listTimelineDeferred,
   listSessions,
   updateDeferred,
   updateSettings,
@@ -43,6 +45,11 @@ export default function contribute(server: PluginServerContext) {
     return { items, sessionResetsAt, usageError, settings: await settings.read() };
   });
 
+  server.handle(listTimelineDeferred, async ({ agentId }, { paseo }) => {
+    void timeline.use(paseo);
+    return { items: (await timeline.visibleItems()).filter(item => item.agentId === agentId) };
+  });
+
   server.handle(updateSettings, async (patch) => ({ settings: await settings.write(patch) }));
   server.handle(listSessions, async () => ({ sessions: await fetchSessions() }));
 
@@ -67,6 +74,13 @@ export default function contribute(server: PluginServerContext) {
     void labels.refresh();
     await timeline.use(paseo);
     return { ok: updated !== null };
+  });
+
+  server.handle(deleteDeferred, async ({ id }, { paseo }) => {
+    const ok = await store.removeIdle(id);
+    void labels.refresh();
+    await timeline.use(paseo);
+    return { ok, error: ok ? null : "This message is already being sent and cannot be deleted." };
   });
 
   server.handle(clearSettled, async ({ agentId }, { paseo }) => {

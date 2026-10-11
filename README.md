@@ -43,7 +43,9 @@ Messages wait until the agent is idle. The queue persists across reloads and res
 
 Workspaces with waiting or sending messages get a blue **Deferred** label in the left sidebar. It stays until the workspace's last deferred message is sent, cancelled, or fails. Labels are restored after restarts, follow sessions moved to another workspace, and preserve other workspace labels, including Session Guard's **Paused** label.
 
-A **Deferred message** timeline row shows the queued text and delivery time. Edits update the same row; sending or cancelling removes it from the visible timeline. Failed sends remain visible until their history is cleared.
+A **Deferred message** timeline card shows the queued text and delivery time. Use **Edit** on the card to change its message or schedule, or **Delete** to remove it. Saving text alone preserves the original delivery time. Sending, cancelling, or deleting removes the card from view; failed sends can also be deleted.
+
+On Paseo apps with the timeline-footer API, deferred cards stay pinned below the scrollable chat history, above the composer. They remain available while older messages load, without duplicate inline cards. Current apps keep the editable inline card until that app support ships.
 
 Sent messages include a **Deferral details** context attachment: when queued, the intended delivery time and trigger, the usage-window reset when applicable, the actual send time, and elapsed/late duration. The original message text stays unchanged.
 

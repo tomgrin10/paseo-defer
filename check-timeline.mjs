@@ -73,26 +73,69 @@ try {
   const large = fixture("large"); large.world.items[0].text = "\u0000🕒".repeat(100000);
   await large.manager().use(large.api); assert.ok(Buffer.byteLength(JSON.stringify(large.world.calls[0].data)) < 65536);
 
-  const clientBuild = await build({ entryPoints: ["client/timeline.tsx"], bundle: true, write: false, format: "cjs", platform: "neutral", external: ["react", "react/jsx-runtime", "react-native", "@getpaseo/plugin/client/react-native", "zod"] });
+  const visibility = fixture("visible"); visibility.world.items.push({ ...visibility.world.items[0], id: "old-failure", state: "failed" });
+  const visibleManager = visibility.manager(); assert.deepEqual((await visibleManager.visibleItems()).map(item => item.id), ["one"]);
+  await visibleManager.use(visibility.api); visibility.world.items[0].state = "failed"; assert.deepEqual((await visibleManager.visibleItems()).map(item => item.id), ["one"]);
+  visibility.world.items[0].state = "sent"; assert.deepEqual(await visibleManager.visibleItems(), []);
+
+  const clientBuild = await build({ entryPoints: ["client/timeline.tsx"], bundle: true, write: false, format: "cjs", platform: "neutral", external: ["react", "react/jsx-runtime", "react-native", "@getpaseo/plugin/client/react-native", "@getpaseo/plugin/client", "./composer", "./refresh", "zod"] });
+  const slots = []; let cursor = 0; let queue = { items: [], sessionResetsAt: null, usageError: null }; let deleteResult = { ok: true, error: null }; let failure = null; let calls = [];
   const ui = instantiateBundle(clientBuild.outputFiles[0].text, id => {
     if (id === "zod") return require(id);
     if (id === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
-    if (id === "react-native") return { Text: "Text", View: "View" };
+    if (id === "react-native") return { Text: "Text", View: "View", Pressable: "Pressable" };
     if (id === "@getpaseo/plugin/client/react-native") return { Icon: "Icon" };
-    if (id === "react") return {};
+    if (id === "react") return { useState: value => { const index = cursor++; if (!(index in slots)) slots[index] = value; return [slots[index], value => { slots[index] = value; }]; } };
+    if (id === "@getpaseo/plugin/client") return { useRpc: contract => async input => { calls.push({ name: contract.name, input }); if (failure) throw new Error(failure); return contract.name === "defer.list" ? queue : deleteResult; } };
+    if (id === "./composer") return { DeferComposer: "Composer", deferStyles: () => ({}) };
+    if (id === "./refresh") return { notifyDeferChanged() {} };
     throw new Error(`Unexpected module ${id}`);
   });
   let renderer;
   ui.contributeTimeline({ addTimelineRenderer: r => { renderer = r; } });
   assert.equal(renderer.kind, "deferred-message"); assert.equal(renderer.version, 1);
   assert.equal(renderer.schema.safeParse({ state: "invalid" }).success, false);
+  const render = props => { cursor = 0; return renderer.Component(props); };
+  function find(tree, label) { if (!tree || typeof tree !== "object") return null; if (tree.props?.accessibilityLabel === label) return tree; for (const child of [tree.props?.children].flat(Infinity)) { const result = find(child, label); if (result) return result; } return null; }
   const item = { type: "plugin", kind: "deferred-message", version: 1, data: { state: "settled" } };
   const props = { item, theme: { colors: { foreground: "black", surface1: "white", border: "gray" } }, layout: { compact: true } };
-  assert.equal(renderer.Component(props), null);
+  assert.equal(render(props), null);
   props.item = { ...item, data: f.world.calls[0].data };
-  const text = JSON.stringify(renderer.Component(props)); assert.ok(text.includes("Deferred message")); assert.ok(text.includes("Review this change")); assert.ok(text.includes("when the agent is idle"));
+  const text = JSON.stringify(render(props)); assert.ok(text.includes("Deferred message")); assert.ok(text.includes("Review this change")); assert.ok(text.includes("when the agent is idle"));
   props.item = { ...item, data: { ...f.world.calls[0].data, trigger: { kind: "sessionReset" }, dueAt: null } };
-  assert.ok(JSON.stringify(renderer.Component(props)).includes("Waiting for session reset"));
+  assert.ok(JSON.stringify(render(props)).includes("Waiting for session reset"));
+  props.agentId = "agent";
+  props.item = { ...item, data: { ...f.world.calls[0].data, state: "pending" } };
+  queue.items = [{ ...f.world.items[0], id: props.item.data.id, state: "pending", text: "full text".repeat(1000) }];
+  let tree = render(props); await find(tree, "Edit deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); tree = render(props);
+  const composer = tree.props.children.find(child => child?.type === "Composer"); assert.equal(composer.props.editing.text, queue.items[0].text); composer.props.onEditingChange(null);
+  failure = "Connection lost"; tree = render(props); find(tree, "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(JSON.stringify(render(props)).includes("Connection lost"));
+  failure = null; deleteResult = { ok: false, error: "Already sending" }; find(render(props), "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(JSON.stringify(render(props)).includes("Already sending"));
+  deleteResult = { ok: true, error: null }; find(render(props), "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(!JSON.stringify(render(props)).includes("Already sending")); assert.deepEqual(calls.at(-1), { name: "defer.delete", input: { id: props.item.data.id } });
+  props.item.data.state = "sending"; assert.equal(find(render(props), "Delete deferred message"), null); assert.equal(find(render(props), "Edit deferred message"), null);
+  const footerBuild = await build({ entryPoints: ["client/timeline-footer.tsx"], bundle: true, write: false, format: "cjs", platform: "neutral", external: ["react", "react/jsx-runtime", "react-native", "@getpaseo/plugin/client", "@tanstack/react-query", "./timeline", "./refresh", "zod"] });
+  let footerQueue = { data: { items: [] }, error: null, refetch: () => {} }; let refreshes = 0;
+  const footerUI = instantiateBundle(footerBuild.outputFiles[0].text, id => {
+    if (id === "zod") return require(id);
+    if (id === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
+    if (id === "react-native") return { Text: "Text", View: "View", Pressable: "Pressable" };
+    if (id === "react") return { useEffect: () => {} };
+    if (id === "@getpaseo/plugin/client") return { useRpc: () => async () => ({ items: [] }) };
+    if (id === "@tanstack/react-query") return { useQuery: () => footerQueue };
+    if (id === "./timeline") return { DeferredMessage: "DeferredMessage" };
+    if (id === "./refresh") return { onDeferChanged: () => () => {} };
+    throw new Error(`Unexpected module ${id}`);
+  });
+  footerUI.contributePinnedTimeline({}); let footerContribution;
+  footerUI.contributePinnedTimeline({ addTimelineFooter: value => { footerContribution = value; } });
+  assert.deepEqual(footerContribution.replaces, [{ kind: "deferred-message", version: 1 }]);
+  const footerProps = { ...props, host: { id: "host" } };
+  assert.equal(footerContribution.Component(footerProps), null);
+  footerQueue.data.items = [{ ...visibility.world.items[0], state: "pending", text: "x".repeat(10000) }];
+  const card = footerContribution.Component(footerProps).props.children[0][0]; assert.ok(card.props.item.data.text.length <= 2001);
+  footerQueue.error = new Error("Disconnected"); footerQueue.refetch = () => { refreshes++; };
+  const failedFooter = footerContribution.Component(footerProps); assert.ok(JSON.stringify(failedFooter).includes("Could not refresh deferred messages")); find(failedFooter, "Retry deferred messages").props.onPress(); assert.equal(refreshes, 1);
+
   await manager.stop(); const count = f.world.calls.length; await manager.refresh(); assert.equal(f.world.calls.length, count);
   console.log("  ✓ deferred timeline: stable rows, edits, sending/failure visibility, sent/cancel cleanup, restart and lost-ack recovery, bounded previews, renderer and invisible settled rows");
 } finally { await Promise.all(managers.map(m => m.stop())); await rm(directory, { recursive: true, force: true }); }

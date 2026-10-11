@@ -2,6 +2,9 @@ import { build } from "esbuild";
 import { instantiateBundle } from "./check-lib.mjs";
 import { createRequire } from "node:module";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const world = { items: [], states: new Map([["agent", "idle"]]), sent: [], fail: false, beforeClaim: null, lifecycle: { teardown: null } };
@@ -44,3 +47,23 @@ try {
   const failed=fixture();world.fail=true;await engine.deliver([structuredClone(failed)]);assert.equal(failed.state,"failed");
   console.log("  ✓ delivery: original text plus deferral metadata for every trigger, cancellation and reschedule races, fresh text, busy-session wait and failed-send settlement");
 } finally { await world.lifecycle.teardown?.(); delete globalThis.__deferDelivery; }
+
+const isolatedHome = await mkdtemp(join(tmpdir(), "defer-delete-check-"));
+const previousHome = process.env.PASEO_HOME;
+process.env.PASEO_HOME = isolatedHome;
+try {
+  const compiled = await build({ entryPoints: ["server/store.ts"], bundle: true, write: false, format: "cjs", platform: "node", external: ["zod"] });
+  const { store } = instantiateBundle(compiled.outputFiles[0].text, require);
+  const base = { ...fixture(), state: "pending" };
+  await store.add({ ...base, id: "waiting" }); await store.add({ ...base, id: "sending", state: "sending" }); await store.add({ ...base, id: "failed", state: "failed" });
+  assert.equal(await store.removeIdle("sending"), false);
+  assert.equal(await store.removeIdle("waiting"), true);
+  assert.equal((await store.updatePending("waiting", { state: "sending" })).reason, "missing");
+  assert.equal(await store.removeIdle("failed"), true);
+  assert.equal(await store.removeIdle("waiting"), true);
+  assert.deepEqual((await store.list()).map(item => item.id), ["sending"]);
+  console.log("  ✓ timeline delete: atomic cancellation, failed-item cleanup, sending protection, repeat deletion and isolation");
+} finally {
+  if (previousHome === undefined) delete process.env.PASEO_HOME; else process.env.PASEO_HOME = previousHome;
+  await rm(isolatedHome, { recursive: true, force: true });
+}

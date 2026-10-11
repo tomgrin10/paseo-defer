@@ -1,4 +1,5 @@
 import { contributeDisplay } from "./client/display";
+import { contributePinnedTimeline } from "./client/timeline-footer";
 import { contributeTimeline } from "./client/timeline";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { DeferPanel } from "./client/panel";
@@ -11,6 +12,7 @@ import { parseDeferCommand } from "./shared/format";
 
 export default function contribute(client: PluginClientContext) {
   contributeTimeline(client);
+  contributePinnedTimeline(client);
   client.addWorkspacePanel({
     id: "defer",
     title: "Defer",

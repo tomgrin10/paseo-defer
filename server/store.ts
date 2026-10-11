@@ -97,6 +97,15 @@ export const store = {
       return { item: updated, reason: null };
     }),
 
+  removeIdle: (id: string): Promise<boolean> =>
+    serialize(async () => {
+      const items = await readAll();
+      const item = items.find((entry) => entry.id === id);
+      if (item?.state === "sending") return false;
+      if (item !== undefined) await writeAll(items.filter((entry) => entry.id !== id));
+      return true;
+    }),
+
   removeSettled: (agentId?: string): Promise<number> =>
     serialize(async () => {
       const items = await readAll();
