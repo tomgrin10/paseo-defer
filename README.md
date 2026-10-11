@@ -14,13 +14,13 @@ Queue a message for a later time or your agent's usage-window reset.
 Use the latest [Paseo](https://paseo.sh) release:
 
 ```sh
-paseo plugin install npm:paseo-defer@2.2.0
+paseo plugin install npm:paseo-defer@2.3.0
 ```
 
 For Git installs:
 
 ```sh
-paseo plugin add https://github.com/tomgrin10/paseo-defer.git#v2.2.0
+paseo plugin add https://github.com/tomgrin10/paseo-defer.git#v2.3.0
 ```
 
 Update with `paseo plugin update paseo-defer`.
