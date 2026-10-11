@@ -35,6 +35,8 @@ export interface DaemonClient {
       windows?: readonly { id: string; resetsAt?: string | null }[];
     }[];
   }>;
+  fetchAgent?(agentId: string): Promise<{ agent: { workspaceId?: string | null } } | null>;
+  setWorkspaceLabel?(input: { workspaceId: string; label: { name: string; color: "blue" }; assigned: boolean }): Promise<unknown>;
   sendMessage(agentId: string, text: string): Promise<unknown>;
 }
 

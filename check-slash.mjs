@@ -35,7 +35,8 @@ const stubs = {
   "react/jsx-runtime": { Fragment: "Fragment", jsx: noop, jsxs: noop },
   "react-native": { View: "View", Text: "Text", Pressable: "Pressable", TextInput: "TextInput", ScrollView: "ScrollView" },
   "@tanstack/react-query": { useQuery: noop, useMutation: noop, useQueryClient: noop },
-  "@getpaseo/plugin": { defineRpc: (d) => d },
+  "@getpaseo/plugin/client/ui": { SettingsAction: () => null, SettingsCard: () => null, SettingsSection: () => null, SettingsSwitch: () => null },
+  "@getpaseo/plugin": { defineSettings: (d) => d, settingsRpc: (id) => ({ read: { name: `settings.${id}.read` } }), defineRpc: (d) => d },
   "@getpaseo/plugin/client": { useRpc: noop, useAgent: noop, useWorkspace: noop },
   "@getpaseo/plugin/client/react-native": { Icon: noop, Modal: noop, useToast: noop },
 };
@@ -56,10 +57,11 @@ function fakePlugin() {
   const registered = [];
   const plugin = {
     handle: noop,
+    addSettingsScreen: () => noop,
     addSurface: noop,
     addSidebarItem: noop,
     addWorkspacePanel: noop,
-    addCommandCenterItem: noop,
+    addCommandCenterItem: () => noop,
     addSlashCommand: (contribution) => registered.push(contribution),
     addComposerPill: () => noop,
     addAttachmentSource: noop,

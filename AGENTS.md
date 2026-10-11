@@ -2,7 +2,7 @@
 
 ## Project
 
-- This is the trusted, unsandboxed Paseo plugin `paseo-defer`; minimum supported Paseo is 0.8.0.
+- This is the trusted, unsandboxed Paseo plugin `paseo-defer`; minimum supported Paseo is 0.10.1.
 - Check the current plugin docs at `https://paseo.sh/docs/plugins.md` and `https://paseo.sh/docs/plugins/v0.8/reference.md` before changing runtime code.
 - Never commit credentials, queued messages, daemon configuration, logs, or local paths.
 
@@ -36,13 +36,14 @@ npm ci
 npm run verify
 ```
 
-`test` runs ten checks, each guarding something typecheck cannot see; `verify` runs typecheck and then `test`. Keep them passing and keep `check-lib.mjs` aligned with the Paseo version in the README badge, since every check models Paseo's compiler from it.
+`test` runs eleven checks, each guarding something typecheck cannot see; `verify` runs typecheck and then `test`. Keep them passing and keep `check-lib.mjs` aligned with the Paseo version in the README badge, since every check models Paseo's compiler from it.
 
 | Check | Guards |
 | --- | --- |
 | `check-bundles.mjs` | The dual-bundle boundary, and the app's own registration validation. A server identifier in `contribute()`'s shared body silently drops every contribution. |
 | `check-format.mjs` | The timing parsers, against a fixed `from` and an explicit clock convention: a bare wait is minutes, a bare 1–12 on an AM/PM device takes the sooner half of the day, and a shown wait or time can be typed straight back in. It also covers the `/defer` line: only a leading word that can *only* be a time is taken as one, a colon means the time of day, and a line naming no time comes back with none rather than a guess. |
 | `check-engine.mjs` | The scheduler's due-selection, against a stubbed store and daemon. A `sessionReset` item must fire on the rollover and not on a re-read of the same window: the provider re-derives the reset instant on every upstream read, so comparing it exactly sent messages hours early. It also covers first-window adoption and a daemon that cannot answer. |
+| `check-labels.mjs` | Deferred workspace aggregation, saved ownership across reloads, lost acknowledgements, workspace moves, cancellation races, other-label preservation, and resource cleanup. |
 | `check-daemon-auth.mjs` | Daemon-password precedence and secrecy: the standard env, an explicit secret file, the paseo-vm convention, and the unauthenticated fallback all reach the borrowed daemon client without leaking the password. |
 | `check-composer.mjs` | The composer's timing controls, mounted against a small hook runtime and pressed: which trigger each option builds, that the AM/PM controls appear only on an AM/PM device, and that editing the text of a typed wait does not re-anchor it. It also covers a handed-over composer draft filling an empty box and never overwriting a message being written. Runs itself once per clock convention under `LC_ALL`. |
 | `check-handoff.mjs` | The composer hand-over: the app's draft-store shape, including the emptied record a send leaves behind, and an offer that survives until the panel mounts, is handed over exactly once, expires, and never reaches another session. |
@@ -159,3 +160,7 @@ Check both a light and a dark theme, and a narrow window for the compact layout.
 - Wait for the publish workflow and npm registry propagation, then verify installation with `paseo plugin install npm:paseo-defer@X.Y.Z` on Paseo 0.9 or newer. Title the GitHub release `paseo-defer vX.Y.Z`, and test the public tag-pinned installer and badge URLs.
 
 Never move or rewrite a published tag. Ship corrections as a new patch release.
+
+## Display settings
+
+`shared/display.ts` defines host-scoped native display settings. Register them in the server entry. `client/display.tsx` owns the sidebar registration and its Display settings screen; Command Center actions remain available when the sidebar is hidden. This requires Paseo 0.10.1 or newer. Preferences in the older plugin-owned settings files are otherwise preserved.

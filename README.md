@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/paseo-defer?style=for-the-badge&color=cb3837)](https://www.npmjs.com/package/paseo-defer)
 [![npm downloads](https://img.shields.io/npm/dm/paseo-defer?style=for-the-badge&color=cb3837)](https://www.npmjs.com/package/paseo-defer)
-[![Paseo](https://img.shields.io/badge/Paseo-plugin-8A63D2?style=for-the-badge)](https://paseo.sh)
+[![Paseo](https://img.shields.io/badge/Paseo-%E2%89%A5%200.10.1-8A63D2?style=for-the-badge)](https://paseo.sh)
 [![License](https://img.shields.io/github/license/tomgrin10/paseo-defer?style=for-the-badge&color=2563eb)](LICENSE)
 
 Queue a message for a later time or your agent's usage-window reset.
@@ -35,9 +35,13 @@ You can also schedule directly from the composer:
 
 Messages wait until the agent is idle. The queue persists across reloads and restarts, even when you close the app.
 
+Workspaces with waiting or sending messages get a blue **Deferred** label in the left sidebar. It stays until the workspace's last deferred message is sent, cancelled, or fails. Labels are restored after restarts, follow sessions moved to another workspace, and preserve other workspace labels, including Session Guard's **Paused** label.
+
 On desktop and web, opening Defer copies your composer draft. Clear the original yourself to avoid sending it twice. On iOS, enter the message in Defer.
 
 Under **Composer pill**, choose **Only when waiting** to hide the pill when the queue is empty.
+
+On Paseo 0.10.1+, hide the sidebar entry in **Settings → Plugins → Defer → Display**; Command Center access stays available after opening a workspace or plugin on that host.
 
 ## Data and access
 

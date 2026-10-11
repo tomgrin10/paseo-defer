@@ -214,6 +214,7 @@ function startEngine(): void {
       console.error("[defer] tick failed", String(error));
     } finally {
       running = false;
+      if (!stopped) void lifecycle.refreshLabels?.();
     }
   };
 

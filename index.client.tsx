@@ -1,3 +1,4 @@
+import { contributeDisplay } from "./client/display";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { DeferPanel } from "./client/panel";
 import { contributeClient } from "./client/pill";
@@ -49,7 +50,7 @@ export default function contribute(client: PluginClientContext) {
 
   client.addCommandCenterItem({
     id: "defer-message-to-session",
-    title: "Defer a message to a session",
+    title: "Defer: deferred messages and sessions",
     icon: "Clock",
     keywords: ["later", "delay", "queue", "schedule", "snooze", "session"],
     context: "global",
@@ -59,12 +60,13 @@ export default function contribute(client: PluginClientContext) {
   });
 
   client.addSurface("overview", DeferOverview);
-  client.addSidebarItem({
+  const removeDisplay = contributeDisplay(client, {
     id: "defer-overview",
     title: "Deferred",
     icon: "Clock",
     surface: "overview",
   });
 
-  return contributeClient(client);
+  const removeClient = contributeClient(client);
+  return () => { removeDisplay(); return removeClient(); };
 }

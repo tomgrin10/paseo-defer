@@ -29,13 +29,14 @@ const ENTRIES = {
  */
 async function runClientBundle(code) {
   const zod = await import("zod");
-  const contracts = { defineRpc: (d) => d, defineAttachmentSource: (d) => d };
+  const contracts = { defineSettings: (d) => d, settingsRpc: (id) => ({ read: { name: `settings.${id}.read` } }), defineRpc: (d) => d, defineAttachmentSource: (d) => d };
   const stubs = {
     zod,
     react: {},
     "react/jsx-runtime": {},
     "react-native": {},
     "@tanstack/react-query": {},
+    "@getpaseo/plugin/client/ui": { SettingsAction: () => null, SettingsCard: () => null, SettingsSection: () => null, SettingsSwitch: () => null },
     "@getpaseo/plugin": contracts,
     "@getpaseo/plugin/client": {
       useRpc: () => async () => ({}),
@@ -81,6 +82,10 @@ async function runClientBundle(code) {
   };
 
   const plugin = {
+    addSettingsScreen(screen) {
+      if (typeof screen.Component !== "function") throw new Error("Invalid settings screen");
+      return () => {};
+    },
     addSurface(id, Component) {
       const surfaceId = requireId(id, "surface id");
       requireFn(Component, `surface ${surfaceId}`);
@@ -118,6 +123,7 @@ async function runClientBundle(code) {
       }
       requireFn(item?.onSelect, `Command Center item ${id} callback`);
       summary.push(`addCommandCenterItem(${id})`);
+      return () => {};
     },
     addSlashCommand(command) {
       requireText(command?.name, "slash command name");
@@ -156,13 +162,17 @@ async function runClientBundle(code) {
         subscribe: () => () => {},
       },
     },
-    rpc: async () => ({ items: [], settings: { pillMode: "always" } }),
+    rpc: async (contract) => contract.name === "settings.display.read"
+      ? { status: "ready", values: { showSidebar: true }, revision: "1" }
+      : { items: [], settings: { pillMode: "always" } },
     openPanel() {},
     openSurface() {},
   };
 
   const cleanup = contribute(plugin);
   if (typeof cleanup !== "function") throw new Error("contribute() must return a cleanup function");
+  await Promise.resolve();
+  await Promise.resolve();
   for (const { id, surface } of sidebarSurfaces) {
     if (!surfaceIds.has(surface)) {
       throw new Error(`Sidebar item ${id} references a missing surface: ${surface}`);
