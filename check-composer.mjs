@@ -167,7 +167,7 @@ const THEME = {
 
 const ENTRY = resolve(DIR, `.check-composer.${LOCALE}.entry.ts`);
 const ENTRY_SOURCE = `export { DeferComposer, deferStyles } from "./client/composer";
-export { clockPlaceholder, formatClock, formatDuration, formatResetLabel, uses12HourClock } from "./shared/format";
+export { clockPlaceholder, describeInstant, formatClock, formatDuration, formatResetLabel, uses12HourClock } from "./shared/format";
 export { offerComposerDraft } from "./client/handoff";
 `;
 
@@ -459,7 +459,7 @@ try {
     agentId: "agent-1",
     text: "already waiting",
     trigger: { kind: "after", ms: 7 * 60_000 },
-    dueAt: new Date(Date.now() + 7 * 60_000).toISOString(),
+    dueAt: new Date(Date.now() + 2 * 60_000).toISOString(),
     anchorResetsAt: null,
     createdAt: new Date().toISOString(),
     state: "pending",
@@ -470,6 +470,7 @@ try {
   check(edit.selected("Deliver In…"), "editing a typed wait comes back to the In… option");
   check(edit.find("How long to wait")?.props.value === "7m", "editing a typed wait shows the wait, not the clock time");
   check(edit.find("Message to defer")?.props.value === "already waiting", "editing loads the message");
+  check(edit.text().includes(`Sends ${edit.graph.describeInstant(queued.dueAt)}.`), "editing confirms the preserved delivery time rather than restarting the shown wait");
 
   edit.type("Message to defer", "fixed a typo");
   edit.press("Save this deferred message");

@@ -294,11 +294,11 @@ export function DeferComposer({
   const waitHint =
     waitMs === null
       ? "Minutes unless you say otherwise: 3, 45m, 2h, 1h 30m."
-      : `Sends ${describeInstant(new Date(Date.now() + waitMs).toISOString())}.`;
+      : `Sends ${describeInstant(editing?.dueAt && triggersMatch({ kind: "after", ms: waitMs }, editing) ? editing.dueAt : new Date(Date.now() + waitMs).toISOString())}.`;
   const clockHint =
     clockIso === null
       ? `Local time, 24-hour or with am/pm: ${clockPlaceholder(hour12)}.`
-      : `Sends ${describeInstant(clockIso)}.`;
+      : `Sends ${describeInstant(editing?.dueAt && triggersMatch({ kind: "at", iso: clockIso }, editing) ? editing.dueAt : clockIso)}.`;
 
   const submit = useMutation({
     mutationFn: async (trigger: Trigger): Promise<{ created: Deferred | null }> => {
