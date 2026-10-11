@@ -164,3 +164,7 @@ Never move or rewrite a published tag. Ship corrections as a new patch release.
 ## Display settings
 
 `shared/display.ts` defines host-scoped native display settings. Register them in the server entry. `client/display.tsx` owns the sidebar registration and its Display settings screen; Command Center actions remain available when the sidebar is hidden. This requires Paseo 0.10.1 or newer. Preferences in the older plugin-owned settings files are otherwise preserved.
+
+## Automated publishing recovery
+
+The npm release workflow supports `workflow_dispatch` with an existing `tag` for recovery without rewriting tags. It checks that the checked-out tag is on `main` and matches package versions. Use Node 24 and npm 11.20.0 with GitHub OIDC; do not set `registry-url` on setup-node or configure token-placeholder authentication. Retrying an already-published package requires its registry integrity to match the packed snapshot. A new publish is verified against the registry before downstream release steps continue.
