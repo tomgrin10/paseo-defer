@@ -147,10 +147,18 @@ async function runClientBundle(code) {
     },
     addTimelineTransformer(transformer) {
       const id = requireId(transformer?.id, "timeline transformer id");
+      if (!["user_message", "assistant_message", "reasoning", "tool_call", "todo", "error", "compaction"].includes(transformer?.query?.itemType)) {
+        throw new Error(`Timeline transformer ${id} has invalid item type: ${transformer?.query?.itemType}`);
+      }
+      requireFn(transformer?.transform, `timeline transformer ${id}`);
       summary.push(`addTimelineTransformer(${id})`);
     },
     addTimelineRenderer(renderer) {
       const kind = requireId(renderer?.kind, "timeline renderer kind");
+      requireFn(renderer?.Component, `timeline renderer ${kind}`);
+      if (!Number.isInteger(renderer.version) || renderer.version < 1 || typeof renderer.schema?.safeParse !== "function") {
+        throw new Error(`Timeline renderer ${kind} has an invalid schema or version`);
+      }
       summary.push(`addTimelineRenderer(${kind})`);
     },
     handle() {

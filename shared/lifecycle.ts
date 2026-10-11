@@ -5,7 +5,8 @@
  */
 export type Teardown = () => void | Promise<void>;
 
-export const lifecycle: { teardown: Teardown | null; refreshLabels: (() => Promise<void>) | null } = {
+export const lifecycle: { teardown: Teardown | null; refreshLabels: (() => Promise<void>) | null; refreshTimeline: (() => Promise<void>) | null } = {
   teardown: null,
   refreshLabels: null,
+  refreshTimeline: null,
 };

@@ -43,6 +43,10 @@ Messages wait until the agent is idle. The queue persists across reloads and res
 
 Workspaces with waiting or sending messages get a blue **Deferred** label in the left sidebar. It stays until the workspace's last deferred message is sent, cancelled, or fails. Labels are restored after restarts, follow sessions moved to another workspace, and preserve other workspace labels, including Session Guard's **Paused** label.
 
+A **Deferred message** timeline row shows the queued text and delivery time. Edits update the same row; sending or cancelling removes it from the visible timeline. Failed sends remain visible until their history is cleared.
+
+Sent messages include a **Deferral details** context attachment: when queued, the intended delivery time and trigger, the usage-window reset when applicable, the actual send time, and elapsed/late duration. The original message text stays unchanged.
+
 On desktop and web, opening Defer copies your composer draft. Clear the original yourself to avoid sending it twice. On iOS, enter the message in Defer.
 
 Under **Composer pill**, choose **Only when waiting** to hide the pill when the queue is empty.

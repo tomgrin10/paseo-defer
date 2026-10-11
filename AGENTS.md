@@ -36,13 +36,15 @@ npm ci
 npm run verify
 ```
 
-`test` runs eleven checks, each guarding something typecheck cannot see; `verify` runs typecheck and then `test`. Keep them passing and keep `check-lib.mjs` aligned with the Paseo version in the README badge, since every check models Paseo's compiler from it.
+`test` runs thirteen checks, each guarding something typecheck cannot see; `verify` runs typecheck and then `test`. Keep them passing and keep `check-lib.mjs` aligned with the Paseo version in the README badge, since every check models Paseo's compiler from it.
 
 | Check | Guards |
 | --- | --- |
 | `check-bundles.mjs` | The dual-bundle boundary, and the app's own registration validation. A server identifier in `contribute()`'s shared body silently drops every contribution. |
 | `check-format.mjs` | The timing parsers, against a fixed `from` and an explicit clock convention: a bare wait is minutes, a bare 1–12 on an AM/PM device takes the sooner half of the day, and a shown wait or time can be typed straight back in. It also covers the `/defer` line: only a leading word that can *only* be a time is taken as one, a colon means the time of day, and a line naming no time comes back with none rather than a guess. |
 | `check-engine.mjs` | The scheduler's due-selection, against a stubbed store and daemon. A `sessionReset` item must fire on the rollover and not on a re-read of the same window: the provider re-derives the reset instant on every upstream read, so comparing it exactly sent messages hours early. It also covers first-window adoption and a daemon that cannot answer. |
+| `check-timeline.mjs` | Stable queued timeline rows, edit updates, invisible settled rows, restart and lost-ack cleanup, bounded previews, renderer and invisible settled rows. |
+| `check-delivery.mjs` | Deferral context attachments for every trigger, fresh edits, atomic delivery claims, cancellation/rescheduling races, and busy-session waits. |
 | `check-labels.mjs` | Deferred workspace aggregation, saved ownership across reloads, lost acknowledgements, workspace moves, cancellation races, other-label preservation, and resource cleanup. |
 | `check-daemon-auth.mjs` | Daemon-password precedence and secrecy: the standard env, an explicit secret file, the paseo-vm convention, and the unauthenticated fallback all reach the borrowed daemon client without leaking the password. |
 | `check-composer.mjs` | The composer's timing controls, mounted against a small hook runtime and pressed: which trigger each option builds, that the AM/PM controls appear only on an AM/PM device, and that editing the text of a typed wait does not re-anchor it. It also covers a handed-over composer draft filling an empty box and never overwriting a message being written. Runs itself once per clock convention under `LC_ALL`. |
@@ -168,3 +170,7 @@ Never move or rewrite a published tag. Ship corrections as a new patch release.
 ## Automated publishing recovery
 
 The npm release workflow supports `workflow_dispatch` with an existing `tag` for recovery without rewriting tags. It checks that the checked-out tag is on `main` and matches package versions. Use Node 24 and npm 11.20.0 with GitHub OIDC; do not set `registry-url` on setup-node or configure token-placeholder authentication. Retrying an already-published package requires its registry integrity to match the packed snapshot. A new publish is verified against the registry before downstream release steps continue.
+
+## Deferred timeline and message context
+
+`server/timeline.ts` owns stable per-message timeline rows and the private `timeline-items.json` ownership journal. Paseo has no timeline delete API: settled rows replace the same identity with a text-free tombstone and its plugin-scoped renderer returns null with no content or chrome. The host rejects timeline transformers selecting plugin rows. Pending, sending, and failed rows stay visible; clearing failed history hides its row. Never send timeline rows through the borrowed CLI connection: only the plugin-owned handler/hook `paseo` can append them. `server/metadata.ts` attaches JSON deferral context to the unchanged message text, including original creation time, current schedule and trigger, usage-window anchor, and actual send time.

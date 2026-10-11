@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { deferralOptions } from "./metadata";
 import { store } from "./store";
 import {
   clearCaches,
@@ -139,7 +140,7 @@ export async function selectDue(pending: Deferred[], now: number): Promise<Defer
   return due;
 }
 
-async function deliver(due: Deferred[]): Promise<void> {
+export async function deliver(due: Deferred[]): Promise<void> {
   await withDaemon(async (client) => {
     const states = await readAgentStates(client);
     for (const item of due) {
@@ -160,9 +161,17 @@ async function deliver(due: Deferred[]): Promise<void> {
       // Mark before sending so a crash cannot silently re-send the same text.
       // The claim also returns the freshest row, so an edit that landed after
       // this tick read the queue still wins.
-      const claimed = await store.update(item.id, { state: "sending" });
+      const { item: claimed, reason } = await store.updatePending(item.id, { state: "sending" });
+      if (reason !== null || claimed === null) continue;
+      // An edit may have postponed this item after due-selection. Return it to
+      // the queue instead of delivering against an obsolete due instant.
+      if (claimed.dueAt !== item.dueAt || JSON.stringify(claimed.trigger) !== JSON.stringify(item.trigger)) {
+        await store.update(item.id, { state: "pending" });
+        continue;
+      }
       try {
-        await client.sendMessage(item.agentId, claimed?.text ?? item.text);
+        const sentAt = new Date().toISOString();
+        await client.sendMessage(claimed.agentId, claimed.text, deferralOptions(claimed, sentAt));
         await store.update(item.id, {
           state: "sent",
           settledAt: new Date().toISOString(),
@@ -215,6 +224,7 @@ function startEngine(): void {
     } finally {
       running = false;
       if (!stopped) void lifecycle.refreshLabels?.();
+      if (!stopped) void lifecycle.refreshTimeline?.();
     }
   };
 

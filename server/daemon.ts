@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { deferralOptions } from "./metadata";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -37,7 +38,7 @@ export interface DaemonClient {
   }>;
   fetchAgent?(agentId: string): Promise<{ agent: { workspaceId?: string | null } } | null>;
   setWorkspaceLabel?(input: { workspaceId: string; label: { name: string; color: "blue" }; assigned: boolean }): Promise<unknown>;
-  sendMessage(agentId: string, text: string): Promise<unknown>;
+  sendMessage(agentId: string, text: string, options?: ReturnType<typeof deferralOptions>): Promise<unknown>;
 }
 
 interface DaemonClientModule {

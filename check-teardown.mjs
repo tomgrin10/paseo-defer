@@ -58,7 +58,7 @@ writeFileSync(
   harnessPath,
   `const mod = require(${JSON.stringify(bundlePath)});
 const contribute = mod.default ?? mod;
-const plugin = new Proxy({}, { get: () => () => {} });
+const plugin = new Proxy({}, { get: (_, name) => name === "on" ? () => () => {} : () => {} });
 (async () => {
   const cleanup = contribute(plugin);
   if (typeof cleanup !== "function") throw new Error("contribute() must return a cleanup function");
