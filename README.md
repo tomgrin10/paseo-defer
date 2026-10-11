@@ -20,7 +20,7 @@ paseo plugin install npm:paseo-defer@2.4.0
 For Git installs:
 
 ```sh
-paseo plugin add https://github.com/tomgrin10/paseo-defer.git#v2.4.0
+paseo plugin add https://github.com/tomgrin10/paseo-defer.git --ref v2.4.0
 ```
 
 Update with `paseo plugin update paseo-defer`.
