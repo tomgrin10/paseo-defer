@@ -14,7 +14,7 @@ Queue a message for a later time or your agent's usage-window reset.
 Use the latest [Paseo](https://paseo.sh) release:
 
 ```sh
-paseo plugin install npm:paseo-defer@2.4.0
+paseo plugin install paseo-defer
 ```
 
 For Git installs:
@@ -73,13 +73,17 @@ paseo plugin install "$PWD"
 
 After changes, run `npm run verify` and `paseo plugin reload paseo-defer`.
 
-## More Paseo plugins
+## License
+
+[MIT](LICENSE) © 2026 Tom Gringauz.
+
+## Other plugins
 
 - [Graphite](https://github.com/tomgrin10/paseo-graphite) — Graphite stacks and PR status.
 - [Smart Session](https://github.com/tomgrin10/paseo-smart-session) — Context compaction and usage insights.
 - [Vitals](https://github.com/tomgrin10/paseo-vitals) — Host, agent, and Docker health.
-- [Send to Paseo](https://github.com/tomgrin10/send-to-paseo) — Send PRs to Paseo from Chrome.
-
-## License
-
-[MIT](LICENSE) © 2026 Tom Gringauz.
+- [Session Guard](https://github.com/tomgrin10/paseo-session-guard) — Pause at session limits and continue after reset.
+- [Transfer](https://github.com/tomgrin10/paseo-transfer) — Copy or move workspaces between hosts.
+- [Transcript Search](https://github.com/tomgrin10/paseo-transcript-search) — Search conversations across connected hosts.
+- [Send to Paseo](https://github.com/tomgrin10/send-to-paseo) — Send GitHub and Graphite PRs to Paseo from Chrome.
+- [Dispatch](https://github.com/tomgrin10/paseo-dispatch) — Route tasks to existing workspaces (development preview).
