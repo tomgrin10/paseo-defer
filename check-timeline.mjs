@@ -112,7 +112,10 @@ try {
   failure = "Connection lost"; tree = render(props); find(tree, "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(JSON.stringify(render(props)).includes("Connection lost"));
   failure = null; deleteResult = { ok: false, error: "Already sending" }; find(render(props), "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(JSON.stringify(render(props)).includes("Already sending"));
   deleteResult = { ok: true, error: null }; find(render(props), "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(!JSON.stringify(render(props)).includes("Already sending")); assert.deepEqual(calls.at(-1), { name: "defer.delete", input: { id: props.item.data.id } });
-  props.item.data.state = "sending"; assert.equal(find(render(props), "Delete deferred message"), null); assert.equal(find(render(props), "Edit deferred message"), null);
+  props.item = { ...item, data: { ...f.world.calls[0].data, state: "pending" } };
+  find(render(props), "Send deferred message now").props.onPress(); await new Promise(resolve => setImmediate(resolve));
+  const sent = calls.at(-1); assert.equal(sent.name, "defer.update"); assert.equal(sent.input.id, props.item.data.id); assert.equal(sent.input.trigger.kind, "at");
+  props.item.data.state = "sending"; assert.equal(find(render(props), "Send deferred message now"), null); assert.equal(find(render(props), "Delete deferred message"), null); assert.equal(find(render(props), "Edit deferred message"), null);
   const footerBuild = await build({ entryPoints: ["client/timeline-footer.tsx"], bundle: true, write: false, format: "cjs", platform: "neutral", external: ["react", "react/jsx-runtime", "react-native", "@getpaseo/plugin/client", "@tanstack/react-query", "./timeline", "./refresh", "zod"] });
   let footerQueue = { data: { items: [] }, error: null, refetch: () => {} }; let refreshes = 0;
   const footerUI = instantiateBundle(footerBuild.outputFiles[0].text, id => {

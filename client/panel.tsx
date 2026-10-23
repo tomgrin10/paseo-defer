@@ -10,6 +10,7 @@ import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import {
   cancelDeferred,
+  updateDeferred,
   clearSettled,
   listDeferred,
   DEFAULT_SETTINGS,
@@ -37,6 +38,7 @@ export function DeferPanel({
   }));
   const list = useRpc(listDeferred);
   const cancel = useRpc(cancelDeferred);
+  const update = useRpc(updateDeferred);
   const clear = useRpc(clearSettled);
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -66,6 +68,16 @@ export function DeferPanel({
   const sessionMeta = [workspaceLabel, agent?.provider ?? "", agent?.status ?? ""]
     .filter((part) => part !== "")
     .join(" · ");
+
+  function onSendNow(item: Deferred) {
+    void update({ id: item.id, trigger: { kind: "at", iso: new Date().toISOString() } })
+      .then((result) => {
+        if (result.item === null) throw new Error(result.error ?? "Could not send this deferred message.");
+        toast.show("Sending now");
+        return invalidate();
+      })
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+  }
 
   function onCancel(item: Deferred) {
     if (editingId === item.id) setEditingId(null);
@@ -136,6 +148,7 @@ export function DeferPanel({
           meta={stateLabel(item)}
           editing={editingId === item.id}
           onEdit={(target) => setEditingId(target.id)}
+          onSendNow={onSendNow}
           onCancel={onCancel}
         />
       ))}

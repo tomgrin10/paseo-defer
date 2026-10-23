@@ -5,6 +5,7 @@ import React, { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import {
   cancelDeferred,
+  updateDeferred,
   clearSettled,
   listDeferred,
   listSessions,
@@ -35,6 +36,7 @@ export function DeferOverview({ theme, layout, navigation }: PluginSurfaceProps)
   const list = useRpc(listDeferred);
   const sessions = useRpc(listSessions);
   const cancel = useRpc(cancelDeferred);
+  const update = useRpc(updateDeferred);
   const clear = useRpc(clearSettled);
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -87,6 +89,16 @@ export function DeferOverview({ theme, layout, navigation }: PluginSurfaceProps)
     return session === undefined
       ? `unknown session ${agentId.slice(0, 8)}`
       : sessionTitle(session);
+  }
+
+  function onSendNow(item: Deferred) {
+    void update({ id: item.id, trigger: { kind: "at", iso: new Date().toISOString() } })
+      .then((result) => {
+        if (result.item === null) throw new Error(result.error ?? "Could not send this deferred message.");
+        toast.show("Sending now");
+        return invalidate();
+      })
+      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
   }
 
   function onCancel(item: Deferred) {
@@ -201,6 +213,7 @@ export function DeferOverview({ theme, layout, navigation }: PluginSurfaceProps)
             setTargetId(target.agentId);
             setEditingId(target.id);
           }}
+          onSendNow={onSendNow}
           onCancel={onCancel}
           onOpenSession={openSession}
         />

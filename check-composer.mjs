@@ -166,7 +166,7 @@ const THEME = {
 };
 
 const ENTRY = resolve(DIR, `.check-composer.${LOCALE}.entry.ts`);
-const ENTRY_SOURCE = `export { DeferComposer, deferStyles } from "./client/composer";
+const ENTRY_SOURCE = `export { DeferComposer, DeferredRow, deferStyles } from "./client/composer";
 export { clockPlaceholder, describeInstant, formatClock, formatDuration, formatResetLabel, uses12HourClock } from "./shared/format";
 export { offerComposerDraft } from "./client/handoff";
 `;
@@ -535,6 +535,25 @@ try {
     unasked.value("Message to defer") === "",
     "a view that was not opened from a composer is handed nothing",
   );
+  // Send now: a waiting row offers it and passes its item up; a settled or
+  // in-flight row offers no way to jump the queue.
+  const sendNowLabel = "Send this deferred message now";
+  const sent = [];
+  const rowFor = (state) =>
+    ui.graph.DeferredRow({
+      styles: ui.graph.deferStyles(THEME, { compact: false, platform: "web" }),
+      item: { id: "row-1", text: "later", state },
+      meta: "",
+      editing: false,
+      onEdit: () => {},
+      onSendNow: (item) => sent.push(item.id),
+      onCancel: () => {},
+    });
+  const rowButton = (state) => [...walk(rowFor(state))].find((node) => node?.props?.accessibilityLabel === sendNowLabel);
+  rowButton("pending")?.props.onPress();
+  check(sent.join() === "row-1", "Send now on a waiting row hands that row up");
+  check(rowButton("sending") === undefined, "an in-flight row offers no Send now");
+  check(rowButton("sent") === undefined, "a settled row offers no Send now");
 } catch (error) {
   failures.push(error instanceof Error ? (error.stack ?? error.message) : String(error));
 }

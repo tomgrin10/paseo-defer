@@ -552,6 +552,7 @@ export interface DeferredRowProps {
   meta: string;
   editing: boolean;
   onEdit(item: Deferred): void;
+  onSendNow(item: Deferred): void;
   onCancel(item: Deferred): void;
   /** Omitted where the view is already inside the target session, or where the
    * host is too old to expose navigation. */
@@ -565,6 +566,7 @@ export function DeferredRow({
   meta,
   editing,
   onEdit,
+  onSendNow,
   onCancel,
   onOpenSession,
 }: DeferredRowProps) {
@@ -587,6 +589,15 @@ export function DeferredRow({
               <Text style={styles.link}>Edit</Text>
             </Pressable>
           )
+        ) : null}
+        {item.state === "pending" ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Send this deferred message now"
+            onPress={() => onSendNow(item)}
+          >
+            <Text style={styles.link}>Send now</Text>
+          </Pressable>
         ) : null}
         <Pressable
           accessibilityRole="button"
