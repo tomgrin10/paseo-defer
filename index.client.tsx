@@ -1,3 +1,5 @@
+import { withButtonVisibility } from "./client/button-visibility";
+import { withNavigation } from "./client/navigation";
 import { contributeDisplay } from "./client/display";
 import { contributePinnedTimeline } from "./client/timeline-footer";
 import { contributeTimeline } from "./client/timeline";
@@ -10,7 +12,9 @@ import { notifyDeferChanged } from "./client/refresh";
 import { createDeferred } from "./shared/defer";
 import { parseDeferCommand } from "./shared/format";
 
-export default function contribute(client: PluginClientContext) {
+export default function contribute(host: PluginClientContext) {
+  const visibility = withButtonVisibility(host);
+  const client = visibility.client;
   contributeTimeline(client);
   contributePinnedTimeline(client);
   client.addWorkspacePanel({
@@ -19,7 +23,7 @@ export default function contribute(client: PluginClientContext) {
     icon: "Clock",
     context: "agent",
     locations: ["workspace", "explorer"],
-    Component: DeferPanel,
+    Component: withNavigation(DeferPanel, client, "overview"),
   });
 
   client.addCommandCenterItem({
@@ -63,7 +67,7 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
-  client.addSurface("overview", DeferOverview);
+  client.addSurface("overview", withNavigation(DeferOverview, client, "overview"));
   const removeDisplay = contributeDisplay(client, {
     id: "defer-overview",
     title: "Deferred",
@@ -72,5 +76,5 @@ export default function contribute(client: PluginClientContext) {
   });
 
   const removeClient = contributeClient(client);
-  return () => { removeDisplay(); return removeClient(); };
+  return () => { visibility.dispose(); removeDisplay(); return removeClient(); };
 }

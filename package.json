@@ -30,13 +30,13 @@
     "typecheck": "tsc --noEmit",
     "check": "node check-bundles.mjs && node check-format.mjs && node check-engine.mjs && node check-labels.mjs && node check-timeline.mjs && node check-delivery.mjs && node check-daemon-auth.mjs && node check-composer.mjs && node check-handoff.mjs && node check-slash.mjs && node check-pill.mjs && node check-gitinstall.mjs && node check-teardown.mjs",
     "test": "npm run check",
-    "verify": "npm run typecheck && npm test"
+    "verify": "npm run typecheck && npm test && node --test button-visibility.test.mjs"
   },
   "devDependencies": {
     "@babel/parser": "^8.0.4",
-    "@getpaseo/client": "0.10.1",
-    "@getpaseo/plugin": "0.10.1",
-    "@getpaseo/protocol": "0.10.1",
+    "@getpaseo/client": "0.11.0",
+    "@getpaseo/plugin": "0.11.0",
+    "@getpaseo/protocol": "0.11.0",
     "@tanstack/react-query": "^5.90.11",
     "@types/react": "~19.2.0",
     "esbuild": "^0.28.2",

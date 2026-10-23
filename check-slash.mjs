@@ -58,7 +58,7 @@ function fakePlugin() {
   const plugin = {
     handle: noop,
     addSettingsScreen: () => noop,
-    addSurface: noop,
+    addSurface: () => noop,
     addSidebarItem: noop,
     addWorkspacePanel: noop,
     addCommandCenterItem: () => noop,

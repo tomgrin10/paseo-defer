@@ -91,6 +91,7 @@ async function runClientBundle(code) {
       requireFn(Component, `surface ${surfaceId}`);
       surfaceIds.add(surfaceId);
       summary.push(`addSurface(${surfaceId})`);
+      return () => {};
     },
     addSidebarItem(item) {
       const id = requireId(item?.id, "sidebar item id");
