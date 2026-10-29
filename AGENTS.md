@@ -36,7 +36,7 @@ npm ci
 npm run verify
 ```
 
-`test` runs thirteen checks, each guarding something typecheck cannot see; `verify` runs typecheck and then `test`. Keep them passing and keep `check-lib.mjs` aligned with the Paseo version in the README badge, since every check models Paseo's compiler from it.
+`test` runs fourteen checks, each guarding something typecheck cannot see; `verify` runs typecheck and then `test`. Keep them passing and keep `check-lib.mjs` aligned with the Paseo version in the README badge, since every check models Paseo's compiler from it.
 
 | Check | Guards |
 | --- | --- |
@@ -48,6 +48,7 @@ npm run verify
 | `check-labels.mjs` | Deferred workspace aggregation, saved ownership across reloads, lost acknowledgements, workspace moves, cancellation races, other-label preservation, and resource cleanup. |
 | `check-daemon-auth.mjs` | Daemon-password precedence and secrecy: the standard env, an explicit secret file, the paseo-vm convention, and the unauthenticated fallback all reach the borrowed daemon client without leaking the password. |
 | `check-composer.mjs` | The composer's timing controls, mounted against a small hook runtime and pressed: which trigger each option builds, that the AM/PM controls appear only on an AM/PM device, and that editing the text of a typed wait does not re-anchor it. It also covers a handed-over composer draft filling an empty box and never overwriting a message being written. Runs itself once per clock convention under `LC_ALL`. |
+| `check-send-now.mjs` | Panel, popover, and overview scheduling handlers: duplicate-click protection, pending state, idle-only feedback, per-view invalidation, server/network failures and refresh recovery. |
 | `check-handoff.mjs` | The composer hand-over: the app's draft-store shape, including the emptied record a send leaves behind, and an offer that survives until the panel mounts, is handed over exactly once, expires, and never reaches another session. |
 | `check-slash.mjs` | The `/defer` command, against a host new enough to offer it — which no other check models, since `check-bundles.mjs` deliberately models one without it. What each line queues, and that a line missing the time or the message opens the panel carrying what *was* written instead of inventing the rest. |
 | `check-pill.mjs` | The composer-pill entrypoint: a pill per live session in each `pillMode`, sessions that close, are removed or move workspace, and every timer and subscription released on cleanup. It also asserts the registered `button.behavior` is `{ kind: "popover", Content }` — the part the live app actually renders — and, calling the legacy `Component` as a plain function against a fake React, still covers that fallback's own wiring: the preview card's open/close/open-the-panel behaviour, the composer draft travelling with each press, the card's quick-defer chips, and the hover region reaching the host pill's edges. |

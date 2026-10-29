@@ -8,6 +8,7 @@ import { cancelDeferred, listDeferred, type Deferred } from "../shared/defer";
 import { DeferComposer, DeferredRow, deferStyles } from "./composer";
 import { offerComposerDraft } from "./handoff";
 import { notifyDeferChanged } from "./refresh";
+import { useSendNow } from "./send-now";
 import { queuedLabel, stateLabel } from "../shared/format";
 
 /**
@@ -61,6 +62,7 @@ function DeferPopoverBody({ theme, layout, agentId, close }: DeferPopoverBodyPro
     notifyDeferChanged();
     return queryClient.invalidateQueries({ queryKey });
   };
+  const send = useSendNow(invalidate);
   const styles = useMemo(() => deferStyles(theme, layout), [theme, layout]);
 
   const items = queue.data?.items ?? [];
@@ -96,6 +98,8 @@ function DeferPopoverBody({ theme, layout, agentId, close }: DeferPopoverBodyPro
               meta={stateLabel(item)}
               editing={editingId === item.id}
               onEdit={(target) => setEditingId(target.id)}
+              onSendNow={send.sendNow}
+              scheduling={send.isPending(item.id)}
               onCancel={onCancel}
             />
           ))}

@@ -14,6 +14,7 @@ import {
 } from "../shared/defer";
 import { DeferComposer, DeferredRow, PillSetting, deferStyles } from "./composer";
 import { notifyDeferChanged } from "./refresh";
+import { useSendNow } from "./send-now";
 import { formatRelative, formatResetLabel, stateLabel, stateTone } from "../shared/format";
 
 const FILTER_THRESHOLD = 6;
@@ -59,6 +60,7 @@ export function DeferOverview({ theme, layout, navigation }: PluginSurfaceProps)
     notifyDeferChanged();
     return queryClient.invalidateQueries({ queryKey });
   };
+  const send = useSendNow(invalidate);
   const styles = useMemo(() => deferStyles(theme, layout), [theme, layout]);
 
   const items = queue.data?.items ?? [];
@@ -201,6 +203,8 @@ export function DeferOverview({ theme, layout, navigation }: PluginSurfaceProps)
             setTargetId(target.agentId);
             setEditingId(target.id);
           }}
+          onSendNow={send.sendNow}
+          scheduling={send.isPending(item.id)}
           onCancel={onCancel}
           onOpenSession={openSession}
         />

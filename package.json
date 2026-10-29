@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "check": "node check-bundles.mjs && node check-format.mjs && node check-engine.mjs && node check-labels.mjs && node check-timeline.mjs && node check-delivery.mjs && node check-daemon-auth.mjs && node check-composer.mjs && node check-handoff.mjs && node check-slash.mjs && node check-pill.mjs && node check-gitinstall.mjs && node check-teardown.mjs",
+    "check": "node check-bundles.mjs && node check-format.mjs && node check-engine.mjs && node check-labels.mjs && node check-timeline.mjs && node check-delivery.mjs && node check-daemon-auth.mjs && node check-composer.mjs && node check-send-now.mjs && node check-handoff.mjs && node check-slash.mjs && node check-pill.mjs && node check-gitinstall.mjs && node check-teardown.mjs",
     "test": "npm run check",
     "verify": "npm run typecheck && npm test && node --test button-visibility.test.mjs && node --test --experimental-strip-types agent-tools.test.mjs && node --test native-tools.test.mjs"
   },

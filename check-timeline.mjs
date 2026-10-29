@@ -79,14 +79,14 @@ try {
   visibility.world.items[0].state = "sent"; assert.deepEqual(await visibleManager.visibleItems(), []);
 
   const clientBuild = await build({ entryPoints: ["client/timeline.tsx"], bundle: true, write: false, format: "cjs", platform: "neutral", external: ["react", "react/jsx-runtime", "react-native", "@getpaseo/plugin/client/react-native", "@getpaseo/plugin/client", "./composer", "./refresh", "zod"] });
-  const slots = []; let cursor = 0; let queue = { items: [], sessionResetsAt: null, usageError: null }; let deleteResult = { ok: true, error: null }; let failure = null; let calls = [];
+  const slots = []; let cursor = 0; let queue = { items: [], sessionResetsAt: null, usageError: null }; let deleteResult = { ok: true, error: null }; let failure = null; let calls = []; let updateResult = { item: f.world.items[0], error: null }; let updateGate; const toasts = [];
   const ui = instantiateBundle(clientBuild.outputFiles[0].text, id => {
     if (id === "zod") return require(id);
     if (id === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
     if (id === "react-native") return { Text: "Text", View: "View", Pressable: "Pressable" };
-    if (id === "@getpaseo/plugin/client/react-native") return { Icon: "Icon" };
-    if (id === "react") return { useState: value => { const index = cursor++; if (!(index in slots)) slots[index] = value; return [slots[index], value => { slots[index] = value; }]; } };
-    if (id === "@getpaseo/plugin/client") return { useRpc: contract => async input => { calls.push({ name: contract.name, input }); if (failure) throw new Error(failure); return contract.name === "defer.list" ? queue : deleteResult; } };
+    if (id === "@getpaseo/plugin/client/react-native") return { Icon: "Icon", useToast: () => ({ show: text => toasts.push(text), error: text => toasts.push(text) }) };
+    if (id === "react") return { useRef: value => { const index = cursor++; return slots[index] ??= { current: value }; }, useState: value => { const index = cursor++; if (!(index in slots)) slots[index] = value; return [slots[index], value => { slots[index] = value; }]; } };
+    if (id === "@getpaseo/plugin/client") return { useRpc: contract => async input => { calls.push({ name: contract.name, input }); if (failure) throw new Error(failure); if (contract.name === "defer.update") { await updateGate; return updateResult; } return contract.name === "defer.list" ? queue : deleteResult; } };
     if (id === "./composer") return { DeferComposer: "Composer", deferStyles: () => ({}) };
     if (id === "./refresh") return { notifyDeferChanged() {} };
     throw new Error(`Unexpected module ${id}`);
@@ -112,7 +112,33 @@ try {
   failure = "Connection lost"; tree = render(props); find(tree, "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(JSON.stringify(render(props)).includes("Connection lost"));
   failure = null; deleteResult = { ok: false, error: "Already sending" }; find(render(props), "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(JSON.stringify(render(props)).includes("Already sending"));
   deleteResult = { ok: true, error: null }; find(render(props), "Delete deferred message").props.onPress(); await new Promise(resolve => setImmediate(resolve)); assert.ok(!JSON.stringify(render(props)).includes("Already sending")); assert.deepEqual(calls.at(-1), { name: "defer.delete", input: { id: props.item.data.id } });
-  props.item.data.state = "sending"; assert.equal(find(render(props), "Delete deferred message"), null); assert.equal(find(render(props), "Edit deferred message"), null);
+  props.item = { ...item, data: { ...f.world.calls[0].data, state: "pending" } };
+  let releaseUpdate;
+  updateGate = new Promise(resolve => { releaseUpdate = resolve; });
+  const sendButton = find(render(props), "Send deferred message now");
+  const beforeSend = calls.length; const startedAt = Date.now();
+  sendButton.props.onPress(); sendButton.props.onPress();
+  assert.equal(calls.length, beforeSend + 1, "rapid clicks must make only one update");
+  tree = render(props);
+  for (const label of ["Send deferred message now", "Edit deferred message", "Delete deferred message"]) assert.equal(find(tree, label).props.disabled, true);
+  assert.ok(JSON.stringify(tree).includes("Scheduling…"));
+  releaseUpdate(); await new Promise(resolve => setImmediate(resolve)); updateGate = undefined;
+  const sent = calls.at(-1); assert.equal(sent.name, "defer.update");
+  assert.deepEqual(Object.keys(sent.input).sort(), ["id", "trigger"]);
+  assert.equal(sent.input.id, props.item.data.id); assert.equal(sent.input.trigger.kind, "at");
+  assert.ok(Date.parse(sent.input.trigger.iso) >= startedAt && Date.parse(sent.input.trigger.iso) <= Date.now());
+  assert.ok(toasts.at(-1).includes("when the session is idle"));
+  assert.equal(find(render(props), "Send deferred message now").props.disabled, false);
+  updateResult = { item: null, error: "Already sending" };
+  find(render(props), "Send deferred message now").props.onPress(); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(JSON.stringify(render(props)).includes("Already sending"));
+  failure = "Connection lost";
+  find(render(props), "Send deferred message now").props.onPress(); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(JSON.stringify(render(props)).includes("Connection lost")); failure = null;
+  updateResult = { item: f.world.items[0], error: null };
+  find(render(props), "Send deferred message now").props.onPress(); await new Promise(resolve => setImmediate(resolve));
+  assert.ok(!JSON.stringify(render(props)).includes("Connection lost"));
+  props.item.data.state = "sending"; assert.equal(find(render(props), "Send deferred message now"), null); assert.equal(find(render(props), "Delete deferred message"), null); assert.equal(find(render(props), "Edit deferred message"), null);
   const footerBuild = await build({ entryPoints: ["client/timeline-footer.tsx"], bundle: true, write: false, format: "cjs", platform: "neutral", external: ["react", "react/jsx-runtime", "react-native", "@getpaseo/plugin/client", "@tanstack/react-query", "./timeline", "./refresh", "zod"] });
   let footerQueue = { data: { items: [] }, error: null, refetch: () => {} }; let refreshes = 0;
   const footerUI = instantiateBundle(footerBuild.outputFiles[0].text, id => {
