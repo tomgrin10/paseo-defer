@@ -52,7 +52,6 @@ paseo plugin reload paseo-defer   # after changes
 ## Other plugins
 
 - [Follow-up](https://github.com/tomgrin10/paseo-follow-up) — Track workspace PRs, remaining tasks and completion.
-- [Graphite](https://github.com/tomgrin10/paseo-graphite) — Graphite stacks and PR status.
 - [Send to Paseo](https://github.com/tomgrin10/send-to-paseo) — Send GitHub and Graphite PRs to Paseo from Chrome.
 - [Session Guard](https://github.com/tomgrin10/paseo-session-guard) — Pause at session limits and continue after reset.
 - [Smart Session](https://github.com/tomgrin10/paseo-smart-session) — Context compaction and usage insights.
