@@ -33,7 +33,7 @@ export interface DaemonClient {
   listProviderUsage(): Promise<{
     providers?: readonly {
       providerId: string;
-      windows?: readonly { id: string; resetsAt?: string | null }[];
+      windows?: readonly { id: string; resetsAt?: string | null; usedPct?: number | null }[];
     }[];
   }>;
   fetchAgent?(agentId: string): Promise<{ agent: { workspaceId?: string | null } } | null>;
@@ -233,19 +233,30 @@ export async function fetchSessions(): Promise<SessionRow[]> {
 }
 
 const USAGE_TTL_MS = 60_000;
-const usageCache = new Map<string, { at: number; resetsAt: string | null }>();
+/** The provider's rolling window as Defer reads it: when it ends, and how much of it is spent. */
+export interface SessionWindow {
+  resetsAt: string | null;
+  /** 0–100 when the provider reports it; only ever shown, never used to schedule. */
+  usedPct: number | null;
+}
 
-function selectWindowReset(
+const usageCache = new Map<string, { at: number; window: SessionWindow }>();
+
+function selectWindow(
   payload: Awaited<ReturnType<DaemonClient["listProviderUsage"]>>,
   provider: string,
-): string | null {
+): SessionWindow {
   const entry = payload.providers?.find((candidate) => candidate.providerId === provider);
   // Provider integrations currently expose their rolling window as either
   // `five_hour` or `session`.
   const window =
     entry?.windows?.find((candidate) => candidate.id === "five_hour") ??
     entry?.windows?.find((candidate) => candidate.id === "session");
-  return normalizeInstant(window?.resetsAt);
+  const used = window?.usedPct;
+  return {
+    resetsAt: normalizeInstant(window?.resetsAt),
+    usedPct: typeof used === "number" && Number.isFinite(used) ? Math.min(100, Math.max(0, used)) : null,
+  };
 }
 
 /**
@@ -276,14 +287,17 @@ export async function getProviderByAgentId(agentId: string | undefined): Promise
  * Cached, because the daemon fetches it from the provider upstream.
  */
 export async function fetchSessionResetsAt(provider: string): Promise<string | null> {
+  return (await fetchSessionWindow(provider)).resetsAt;
+}
+
+/** The same cached read, with the share of the window already used. */
+export async function fetchSessionWindow(provider: string): Promise<SessionWindow> {
   const now = Date.now();
   const cached = usageCache.get(provider);
-  if (cached !== undefined && now - cached.at < USAGE_TTL_MS) return cached.resetsAt;
-  const resetsAt = await withDaemon(async (client) =>
-    selectWindowReset(await client.listProviderUsage(), provider),
-  );
-  usageCache.set(provider, { at: Date.now(), resetsAt });
-  return resetsAt;
+  if (cached !== undefined && now - cached.at < USAGE_TTL_MS) return cached.window;
+  const window = await withDaemon(async (client) => selectWindow(await client.listProviderUsage(), provider));
+  usageCache.set(provider, { at: Date.now(), window });
+  return window;
 }
 
 /** Same value, reusing a connection the caller already opened. */
@@ -291,9 +305,9 @@ export async function readSessionResetsAt(
   client: DaemonClient,
   provider: string,
 ): Promise<string | null> {
-  const resetsAt = selectWindowReset(await client.listProviderUsage(), provider);
-  usageCache.set(provider, { at: Date.now(), resetsAt });
-  return resetsAt;
+  const window = selectWindow(await client.listProviderUsage(), provider);
+  usageCache.set(provider, { at: Date.now(), window });
+  return window.resetsAt;
 }
 
 export function clearCaches(): void {

@@ -1,15 +1,13 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { type PluginHostProps, useRpc } from "@getpaseo/plugin/client";
-import { TextInput } from "@getpaseo/plugin/client/react-native";
+import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useMutation } from "@tanstack/react-query";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import {
   createDeferred,
   updateDeferred,
-  updateSettings,
   type Deferred,
-  type PillMode,
   type Trigger,
 } from "../shared/defer";
 import { onComposerDraftOffered } from "./handoff";
@@ -26,10 +24,13 @@ import {
   uses12HourClock,
   type Meridiem,
 } from "../shared/format";
+import { Button, choiceStyle, rowActions, WhenLine } from "./kit";
+import { tabular, withAlpha } from "./theme";
 
 type Layout = PluginHostProps["layout"];
 type Choice = { id: string; label: string; trigger: () => Trigger | null };
 type Controls = { selected: string; clock: string; duration: string };
+type PressState = PressableStateCallbackType & { hovered?: boolean };
 
 const MINUTE = 60_000;
 
@@ -63,92 +64,62 @@ function controlsForItem(item: Deferred): Controls {
   return controlsForTrigger(item.trigger, item.dueAt);
 }
 
-/** One style sheet for every Defer view, so the panel and surface stay in step. */
+/**
+ * One style sheet for every Defer view. It carries its theme and layout, so a
+ * row handed only `styles` can still draw itself in the host's colours.
+ */
 export function deferStyles(theme: PluginTheme, layout: Layout) {
-  const pad = layout.compact ? 16 : 24;
+  const c = theme.colors;
+  const compact = layout.compact;
   return {
-    screen: { flex: 1, backgroundColor: theme.colors.surface0 },
-    body: { padding: pad, gap: layout.compact ? 10 : 14 },
-    heading: { color: theme.colors.foreground, fontSize: layout.compact ? 16 : 18, fontWeight: "600" as const },
-    title: { color: theme.colors.foreground, fontSize: layout.compact ? 18 : 22, fontWeight: "600" as const },
-    section: { color: theme.colors.foreground, fontSize: 14, fontWeight: "600" as const, marginTop: 8 },
-    hint: { color: theme.colors.foregroundMuted, fontSize: 12 },
-    target: {
-      backgroundColor: theme.colors.surface1,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      borderRadius: 10,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      gap: 2,
-    },
-    targetTitle: { color: theme.colors.foreground, fontSize: 13, fontWeight: "600" as const },
-    targetMeta: { color: theme.colors.foregroundMuted, fontSize: 11 },
+    theme,
+    compact,
+    screen: { flex: 1, backgroundColor: c.surface0 },
+    body: { padding: compact ? 16 : 24, gap: compact ? 12 : 16 },
+    heading: { color: c.foreground, fontSize: 15, lineHeight: 21, fontWeight: "600" as const },
+    hint: { color: c.foregroundMuted, fontSize: 12, lineHeight: 17, ...tabular },
     input: {
-      color: theme.colors.foreground,
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
+      color: c.foreground,
+      backgroundColor: c.surface1,
+      borderColor: c.border,
       borderWidth: 1,
       borderRadius: 10,
-      padding: 12,
-      minHeight: layout.compact ? 72 : 96,
+      paddingHorizontal: 12,
+      paddingTop: 10,
+      paddingBottom: 10,
+      fontSize: 14,
+      lineHeight: 20,
+      minHeight: compact ? 76 : 84,
       textAlignVertical: "top" as const,
+      outlineWidth: 0,
     },
-    row: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8, alignItems: "center" as const },
-    chip: {
-      paddingVertical: 7,
-      paddingHorizontal: 12,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      backgroundColor: theme.colors.surface2,
-    },
-    chipOn: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
-    chipText: { color: theme.colors.foreground, fontSize: 13 },
-    chipTextOn: { color: theme.colors.accentForeground, fontSize: 13 },
-    sessionChip: {
-      paddingVertical: 7,
-      paddingHorizontal: 12,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      backgroundColor: theme.colors.surface2,
-      maxWidth: 280,
-      gap: 1,
-    },
-    clock: {
-      color: theme.colors.foreground,
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
+    inputFocused: { borderColor: withAlpha(c.foreground, 0.42) },
+    row: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, alignItems: "center" as const },
+    chipText: { color: c.foreground, fontSize: 13, lineHeight: 17, ...tabular },
+    field: {
+      color: c.foreground,
+      backgroundColor: c.surface1,
+      borderColor: c.border,
       borderWidth: 1,
       borderRadius: 8,
-      paddingVertical: 6,
+      paddingVertical: compact ? 10 : 6,
       paddingHorizontal: 10,
-      minWidth: 76,
+      minWidth: 96,
+      fontSize: 14,
+      outlineWidth: 0,
+      ...tabular,
     },
-    filter: {
-      color: theme.colors.foreground,
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingVertical: 6,
-      paddingHorizontal: 10,
-      minWidth: 160,
-    },
-    button: { marginTop: 4, padding: 13, borderRadius: 10, backgroundColor: theme.colors.accent },
-    buttonText: { color: theme.colors.accentForeground, textAlign: "center" as const, fontWeight: "600" as const },
-    danger: { color: theme.colors.statusDanger, fontSize: 12 },
-    item: { borderTopWidth: 1, borderTopColor: theme.colors.border, paddingVertical: 10, gap: 4 },
-    itemText: { color: theme.colors.foreground, fontSize: 13 },
-    itemMeta: { color: theme.colors.foregroundMuted, fontSize: 11 },
-    action: { minHeight: 44, paddingHorizontal: 8, justifyContent: "center" as const },
-    link: { color: theme.colors.foregroundMuted, fontSize: 11, textDecorationLine: "underline" as const },
+    danger: { color: c.statusDanger, fontSize: 12, lineHeight: 17 },
+    note: { flexDirection: "row" as const, gap: 6, alignItems: "flex-start" as const },
+    item: { paddingVertical: 11, paddingHorizontal: compact ? 0 : 0, gap: 5 },
+    itemText: { color: c.foreground, fontSize: 13, lineHeight: 19 },
+    itemMeta: { color: c.foregroundMuted, fontSize: 12, lineHeight: 17, ...tabular },
+    divider: { height: 1, backgroundColor: c.border },
     tone: {
-      muted: { color: theme.colors.foregroundMuted, fontSize: 11 },
-      success: { color: theme.colors.statusSuccess, fontSize: 11 },
-      warning: { color: theme.colors.statusWarning, fontSize: 11 },
-      danger: { color: theme.colors.statusDanger, fontSize: 11 },
+      muted: { color: c.foregroundMuted, fontSize: 12, lineHeight: 17 },
+      success: { color: c.statusSuccess, fontSize: 12, lineHeight: 17 },
+      warning: { color: c.statusWarning, fontSize: 12, lineHeight: 17 },
+      danger: { color: c.statusDanger, fontSize: 12, lineHeight: 17 },
     },
   };
 }
@@ -162,6 +133,8 @@ export interface DeferComposerProps {
   agentId: string | null;
   resetsAt: string | null;
   usageError: string | null;
+  /** Share of the 5-hour window already used, when the provider reports it. */
+  usedPct?: number | null | undefined;
   /** Non-null puts the composer in edit mode for that queued message. */
   editing: Deferred | null;
   onEditingChange(item: Deferred | null): void;
@@ -174,19 +147,20 @@ export interface DeferComposerProps {
   onCreated?: ((item: Deferred) => void) | undefined;
   /**
    * Accept the text already typed in this session's own composer when Defer was
-   * opened from it. Only the in-session panel sets it: the overview is reached
-   * from the sidebar and ⌘K, where there is no one composer to take from.
+   * opened from it. Only the in-session views set it: the Deferred screen is
+   * reached from the sidebar and ⌘K, where there is no one composer to take from.
    */
   acceptComposerDraft?: boolean | undefined;
 }
 
-/** Message box, timing chips, and the create/edit submit shared by both views. */
+/** Message box, timing chips, and the create/edit submit shared by every view. */
 export function DeferComposer({
   theme,
   styles,
   agentId,
   resetsAt,
   usageError,
+  usedPct = null,
   editing,
   onEditingChange,
   onSaved,
@@ -195,6 +169,7 @@ export function DeferComposer({
 }: DeferComposerProps) {
   const create = useRpc(createDeferred);
   const update = useRpc(updateDeferred);
+  const c = theme.colors;
 
   const [text, setText] = useState("");
   const [selected, setSelected] = useState("15m");
@@ -203,6 +178,7 @@ export function DeferComposer({
   /** Null means "whichever 9:30 comes first"; a value pins the half of the day. */
   const [meridiem, setMeridiem] = useState<Meridiem | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
 
   const editingId = editing?.id ?? null;
   const loadedId = useRef<string | null>(null);
@@ -227,7 +203,9 @@ export function DeferComposer({
     }
     const controls = controlsForItem(editing);
     setText(editing.text);
-    setSelected(controls.selected);
+    // The fields still load what the message was given, so In… or At… opens
+    // on its own wait or time; Keep is what is selected.
+    setSelected("keep");
     setClockInput(controls.clock);
     setDurationInput(controls.duration);
     // The loaded clock text carries its own AM/PM, so nothing needs pinning.
@@ -262,6 +240,11 @@ export function DeferComposer({
 
   const choices: Choice[] = useMemo(
     () => [
+      // While editing, the first option is the time the message already has,
+      // selected, so nothing re-anchors unless another option is chosen.
+      ...(editing === null
+        ? []
+        : [{ id: "keep", label: "Keep", trigger: (): Trigger => editing.trigger }]),
       ...PRESETS.map((preset) => ({
         id: preset.id,
         label: preset.label,
@@ -285,21 +268,39 @@ export function DeferComposer({
       },
       { id: "reset", label: "Session reset", trigger: () => ({ kind: "sessionReset" }) },
     ],
-    [clockInput, durationInput, hour12, meridiem],
+    [clockInput, durationInput, editing, hour12, meridiem],
   );
 
   // Resolved as you type, so a wait or a time is confirmed as an actual moment
   // before it is queued. This is the whole answer to "9:30 — but which one?".
+  const kept = (trigger: Trigger, fresh: string) =>
+    editing?.dueAt && triggersMatch(trigger, editing) ? editing.dueAt : fresh;
   const waitMs = parseDuration(durationInput);
   const clockIso = parseNextClockTime(clockInput, { meridiem, hour12 });
-  const waitHint =
-    waitMs === null
-      ? "Minutes unless you say otherwise: 3, 45m, 2h, 1h 30m."
-      : `Sends ${describeInstant(editing?.dueAt && triggersMatch({ kind: "after", ms: waitMs }, editing) ? editing.dueAt : new Date(Date.now() + waitMs).toISOString())}.`;
-  const clockHint =
-    clockIso === null
-      ? `Local time, 24-hour or with am/pm: ${clockPlaceholder(hour12)}.`
-      : `Sends ${describeInstant(editing?.dueAt && triggersMatch({ kind: "at", iso: clockIso }, editing) ? editing.dueAt : clockIso)}.`;
+  const preset = PRESETS.find((candidate) => candidate.id === selected);
+  let resolution: string;
+  if (selected === "keep" && editing !== null) {
+    resolution = editing.dueAt === null
+      ? "Sends at the next session reset"
+      : `Sends ${describeInstant(editing.dueAt)}`;
+  } else if (preset !== undefined) {
+    resolution = `Sends ${describeInstant(kept({ kind: "after", ms: preset.ms }, new Date(Date.now() + preset.ms).toISOString()))}`;
+  } else if (selected === "in") {
+    resolution =
+      waitMs === null
+        ? "Minutes unless you say otherwise: 3, 45m, 2h, 1h 30m."
+        : `Sends ${describeInstant(kept({ kind: "after", ms: waitMs }, new Date(Date.now() + waitMs).toISOString()))}`;
+  } else if (selected === "at") {
+    resolution =
+      clockIso === null
+        ? `Local time, 24-hour or with am/pm: ${clockPlaceholder(hour12)}.`
+        : `Sends ${describeInstant(kept({ kind: "at", iso: clockIso }, clockIso))}`;
+  } else {
+    resolution =
+      resetsAt === null
+        ? usageError ?? "Usage window unavailable. The message waits until it can be read, then sends at the next reset."
+        : `Next reset ${formatResetLabel(resetsAt)} · ${formatRelative(resetsAt)}${usedPct === null ? "" : ` · ${Math.round(usedPct)}% of the window used`}`;
+  }
 
   const submit = useMutation({
     mutationFn: async (trigger: Trigger): Promise<{ created: Deferred | null }> => {
@@ -332,8 +333,8 @@ export function DeferComposer({
   });
 
   const isEditing = editing !== null;
-  const canSubmit =
-    text.trim() !== "" && !submit.isPending && (isEditing || agentId !== null);
+  const canSubmit = text.trim() !== "" && !submit.isPending && (isEditing || agentId !== null);
+  const fromComposer = handedOver.current !== null && text === handedOver.current && text.trim() !== "";
 
   function onSubmit() {
     if (text.trim() === "") return;
@@ -350,218 +351,166 @@ export function DeferComposer({
     submit.mutate(trigger);
   }
 
+  const choiceChip = (id: string, label: string, accessibilityLabel: string, on: boolean, onPress: () => void) => (
+    <Pressable
+      key={id}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected: on }}
+      onPress={onPress}
+      hitSlop={styles.compact ? 0 : 3}
+      style={(state: PressState) => [choiceStyle(c, on, state), styles.compact ? { minHeight: 40, paddingHorizontal: 14 } : null]}
+    >
+      <Text style={[styles.chipText, on ? { fontWeight: "600" } : null]}>{label}</Text>
+    </Pressable>
+  );
+
   return (
-    <>
+    <View style={{ gap: 10 }}>
       <TextInput
-        style={styles.input}
+        style={[styles.input, focused ? styles.inputFocused : null]}
         value={text}
         onChangeText={setText}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder="Message to send later…"
-        placeholderTextColor={theme.colors.foregroundMuted}
+        placeholderTextColor={c.foregroundMuted}
         multiline
         accessibilityLabel="Message to defer"
       />
 
+      {fromComposer ? (
+        // Paseo gives a plugin no way to clear its prompt box, so the copy left
+        // there would go out a second time if sent.
+        <View style={styles.note}>
+          <View style={{ paddingTop: 1 }}>
+            <Icon name="Copy" size={13} color={c.foregroundMuted} />
+          </View>
+          <Text style={[styles.hint, { flex: 1 }]}>Copied from your message box. Clear it there so it isn't sent twice.</Text>
+        </View>
+      ) : null}
+
       <View style={styles.row}>
-        {choices.map((choice) => {
-          const on = choice.id === selected;
-          return (
-            <Pressable
-              key={choice.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Deliver ${choice.label}`}
-              accessibilityState={{ selected: on }}
-              onPress={() => setSelected(choice.id)}
-              style={[styles.chip, on ? styles.chipOn : null]}
-            >
-              <Text style={on ? styles.chipTextOn : styles.chipText}>
-                {choice.id === "reset" && resetsAt !== null
-                  ? `Session reset · ${formatResetLabel(resetsAt)}`
-                  : choice.label}
-              </Text>
-            </Pressable>
-          );
-        })}
+        {choices.map((choice) =>
+          choiceChip(
+            choice.id,
+            choice.id === "reset" && resetsAt !== null
+              ? `Session reset · ${formatResetLabel(resetsAt)}`
+              : choice.id === "keep" && editing !== null
+                ? `Keep · ${editing.dueAt === null ? "at reset" : formatResetLabel(editing.dueAt)}`
+                : choice.label,
+            choice.id === "keep" ? "Keep the current send time" : `Deliver ${choice.label}`,
+            choice.id === selected,
+            () => setSelected(choice.id),
+          ),
+        )}
       </View>
 
       {selected === "in" ? (
-        <>
-          <View style={styles.row}>
-            <TextInput
-              style={styles.clock}
-              value={durationInput}
-              onChangeText={setDurationInput}
-              placeholder="20m"
-              placeholderTextColor={theme.colors.foregroundMuted}
-              accessibilityLabel="How long to wait"
-            />
-          </View>
-          <Text style={styles.hint}>{waitHint}</Text>
-        </>
+        <View style={styles.row}>
+          <TextInput
+            style={styles.field}
+            value={durationInput}
+            onChangeText={setDurationInput}
+            placeholder="20m"
+            placeholderTextColor={c.foregroundMuted}
+            accessibilityLabel="How long to wait"
+          />
+        </View>
       ) : null}
 
       {selected === "at" ? (
-        <>
-          <View style={styles.row}>
-            <TextInput
-              style={styles.clock}
-              value={clockInput}
-              onChangeText={setClockInput}
-              placeholder={clockPlaceholder(hour12)}
-              placeholderTextColor={theme.colors.foregroundMuted}
-              accessibilityLabel="Delivery time"
-            />
-            {/* Only where the clock is ambiguous. A 24-hour device needs no half. */}
-            {hour12
-              ? (["am", "pm"] as const).map((half) => {
-                  const on = meridiem === half;
-                  const label = half.toUpperCase();
-                  return (
-                    <Pressable
-                      key={half}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Deliver in the ${label}`}
-                      accessibilityState={{ selected: on }}
-                      onPress={() => setMeridiem(on ? null : half)}
-                      style={[styles.chip, on ? styles.chipOn : null]}
-                    >
-                      <Text style={on ? styles.chipTextOn : styles.chipText}>{label}</Text>
-                    </Pressable>
-                  );
-                })
-              : null}
-          </View>
-          <Text style={styles.hint}>{clockHint}</Text>
-        </>
+        <View style={styles.row}>
+          <TextInput
+            style={styles.field}
+            value={clockInput}
+            onChangeText={setClockInput}
+            placeholder={clockPlaceholder(hour12)}
+            placeholderTextColor={c.foregroundMuted}
+            accessibilityLabel="Delivery time"
+          />
+          {/* Only where the clock is ambiguous. A 24-hour device needs no half. */}
+          {hour12
+            ? (["am", "pm"] as const).map((half) => {
+                const on = meridiem === half;
+                const label = half.toUpperCase();
+                return choiceChip(half, label, `Deliver in the ${label}`, on, () => setMeridiem(on ? null : half));
+              })
+            : null}
+        </View>
       ) : null}
 
-      {selected === "reset" ? (
-        <Text style={styles.hint}>
-          {resetsAt === null
-            ? usageError ?? "Usage window unavailable; delivery starts once it can be read."
-            : `Next reset ${formatResetLabel(resetsAt)} (${formatRelative(resetsAt)}).`}
-        </Text>
+      {selected === "reset" && resetsAt !== null && usedPct !== null ? (
+        <UsageBar theme={theme} usedPct={usedPct} />
       ) : null}
 
-      {isEditing ? (
-        <Text style={styles.hint}>Timing only changes if you pick a different option.</Text>
-      ) : null}
+      <Text style={styles.hint}>{resolution}</Text>
 
-      {problem !== null ? <Text style={styles.danger}>{problem}</Text> : null}
+      {problem !== null ? <Text accessibilityRole="alert" style={styles.danger}>{problem}</Text> : null}
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={isEditing ? "Save this deferred message" : "Defer this message"}
-        disabled={!canSubmit}
-        onPress={onSubmit}
-        style={[styles.button, { opacity: canSubmit ? 1 : 0.5 }]}
-      >
-        <Text style={styles.buttonText}>
-          {isEditing
-            ? submit.isPending
-              ? "Saving…"
-              : "Save changes"
-            : submit.isPending
-              ? "Deferring…"
-              : "Defer"}
-        </Text>
-      </Pressable>
-
-      {isEditing ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Stop editing"
-          onPress={() => onEditingChange(null)}
-        >
-          <Text style={styles.link}>Cancel edit</Text>
-        </Pressable>
-      ) : null}
-    </>
+      <View style={[styles.row, { gap: 8, marginTop: 2 }, isEditing ? { justifyContent: "flex-end" } : null]}>
+        {isEditing ? (
+          <Button theme={theme} kind="ghost" compact={styles.compact} title="Cancel edit" accessibilityLabel="Stop editing" onPress={() => onEditingChange(null)} />
+        ) : null}
+        <Button
+          theme={theme}
+          kind="primary"
+          compact={styles.compact}
+          grow={!isEditing}
+          title={isEditing ? (submit.isPending ? "Saving…" : "Save changes") : submit.isPending ? "Deferring…" : "Defer"}
+          accessibilityLabel={isEditing ? "Save this deferred message" : "Defer this message"}
+          disabled={!canSubmit}
+          loading={submit.isPending}
+          onPress={onSubmit}
+        />
+      </View>
+    </View>
   );
 }
 
-const PILL_MODES: readonly { id: PillMode; label: string }[] = [
-  { id: "always", label: "Every session" },
-  { id: "waiting", label: "Only when waiting" },
-];
-
-export interface PillSettingProps {
-  styles: DeferStyles;
-  mode: PillMode;
-  onSaved(): void;
-}
-
 /**
- * Where the composer pill lives, for anyone who does not want a `Defer` button
- * above every session. Shown in both views because it applies to all of them,
- * and because turning the pill off has to be undoable from somewhere that is
- * not the pill.
+ * How much of the rolling window is spent: the reason to pick "Session reset".
+ * Warning past 80% and danger past 95%, matching Paseo's own usage meter.
  */
-export function PillSetting({ styles, mode, onSaved }: PillSettingProps) {
-  const save = useRpc(updateSettings);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [pending, setPending] = useState<PillMode | null>(null);
-  // Optimistic, so a chip responds before the queue is re-read.
-  const shown = pending ?? mode;
-
-  function choose(next: PillMode) {
-    if (next === shown) return;
-    setPending(next);
-    setProblem(null);
-    void save({ pillMode: next })
-      .then(() => onSaved())
-      .catch((error: unknown) => {
-        setPending(null);
-        setProblem(error instanceof Error ? error.message : String(error));
-      });
-  }
-
+function UsageBar({ theme, usedPct }: { theme: PluginTheme; usedPct: number }) {
+  const c = theme.colors;
+  const pct = Math.min(100, Math.max(0, usedPct));
+  const fill = pct >= 95 ? c.statusDanger : pct >= 80 ? c.statusWarning : c.foregroundMuted;
   return (
-    <>
-      <Text style={styles.section}>Composer pill</Text>
-      <View style={styles.row}>
-        {PILL_MODES.map((option) => {
-          const on = option.id === shown;
-          return (
-            <Pressable
-              key={option.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Show the composer pill on ${option.label.toLowerCase()}`}
-              accessibilityState={{ selected: on }}
-              onPress={() => choose(option.id)}
-              style={[styles.chip, on ? styles.chipOn : null]}
-            >
-              <Text style={on ? styles.chipTextOn : styles.chipText}>{option.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <Text style={styles.hint}>
-        {shown === "always"
-          ? "A Defer button sits above every composer, and shows the queue once a session has one."
-          : "The pill only appears where something is waiting. Reach Defer from ⌘K or the Deferred sidebar."}
-      </Text>
-      {problem !== null ? <Text style={styles.danger}>{problem}</Text> : null}
-    </>
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel="Usage window"
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(pct), text: `${Math.round(pct)}% used` }}
+      style={{ height: 4, borderRadius: 2, backgroundColor: withAlpha(c.foregroundMuted, 0.2), overflow: "hidden" }}
+    >
+      <View style={{ width: `${pct}%`, height: 4, borderRadius: 2, backgroundColor: fill }} />
+    </View>
   );
 }
 
 export interface DeferredRowProps {
   styles: DeferStyles;
   item: Deferred;
-  /** Trailing detail line, e.g. which session a queued message belongs to. */
+  /** The session this message lands in, where the view is not already inside it. */
   meta: string;
   editing: boolean;
   onEdit(item: Deferred): void;
   onSendNow(item: Deferred): void;
   scheduling?: boolean;
   onCancel(item: Deferred): void;
+  /** Pushes the send time back ten minutes. Omitted where a view has no room for it. */
+  onSnooze?: ((item: Deferred) => void) | undefined;
   /** Omitted where the view is already inside the target session, or where the
    * host is too old to expose navigation. */
   onOpenSession?: ((item: Deferred) => void) | undefined;
+  /** The clock the countdown is read against; the parent owns the tick. */
+  now?: number;
 }
 
-/** One waiting message, with guarded scheduling and editing actions. */
+/**
+ * One waiting message: the time it sends, what it says, where it lands, and
+ * what can still be done about it. Hook-free, so any list can render many.
+ */
 export function DeferredRow({
   styles,
   item,
@@ -571,62 +520,56 @@ export function DeferredRow({
   onSendNow,
   scheduling = false,
   onCancel,
+  onSnooze,
   onOpenSession,
+  now = Date.now(),
 }: DeferredRowProps) {
+  const theme = styles.theme;
+  const c = theme.colors;
+  const compact = styles.compact;
+  const pending = item.state === "pending";
+  const canSnooze = onSnooze !== undefined && pending && item.trigger?.kind !== "sessionReset" && item.dueAt != null;
+
+  const actions = !pending ? null : rowActions({
+    theme,
+    compact,
+    disabled: scheduling,
+    snooze: canSnooze ? { label: "Snooze this deferred message by 10 minutes", onPress: () => onSnooze?.(item) } : undefined,
+    send: {
+      label: "Send this deferred message now",
+      title: scheduling ? "Scheduling…" : "Send now",
+      hint: editing ? "Save or cancel your edits before sending" : "Delivery waits until the session is idle",
+      onPress: () => onSendNow(item),
+    },
+    editing,
+    edit: { label: "Edit this deferred message", title: "Edit", onPress: () => onEdit(item) },
+    end: { label: "Cancel this deferred message", title: "Cancel", onPress: () => onCancel(item) },
+  });
   return (
     <View style={styles.item}>
+      <WhenLine item={item} now={now} theme={theme} />
       <Text style={styles.itemText} numberOfLines={3}>
         {item.text}
       </Text>
-      <View style={styles.row}>
-        <Text style={styles.itemMeta}>{meta}</Text>
-        {item.state === "pending" ? (
-          editing ? (
-            <Text style={styles.itemMeta}>editing above</Text>
-          ) : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Edit this deferred message"
-              disabled={scheduling}
-              style={styles.action}
-              onPress={() => onEdit(item)}
-            >
-              <Text style={styles.link}>Edit</Text>
-            </Pressable>
-          )
-        ) : null}
-        {item.state === "pending" ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Send this deferred message now"
-            accessibilityHint={editing ? "Save or cancel your edits before sending" : "Delivery waits until the session is idle"}
-            disabled={scheduling || editing}
-            style={styles.action}
-            onPress={() => onSendNow(item)}
-          >
-            <Text style={[styles.link, { opacity: scheduling || editing ? 0.5 : 1 }]}>{scheduling ? "Scheduling…" : "Send now"}</Text>
-          </Pressable>
-        ) : null}
+      {meta === "" ? null : onOpenSession === undefined ? (
+        <Text style={styles.itemMeta} numberOfLines={1}>{meta}</Text>
+      ) : (
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Cancel this deferred message"
-          disabled={scheduling || item.state !== "pending"}
-          style={styles.action}
-          onPress={() => onCancel(item)}
+          accessibilityRole="link"
+          accessibilityLabel={`Open ${meta}`}
+          onPress={() => onOpenSession(item)}
+          hitSlop={4}
+          style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" }}
         >
-          <Text style={styles.link}>Cancel</Text>
+          {(state: PressState) => (
+            <>
+              <Text style={[styles.itemMeta, { flexShrink: 1 }, state.hovered ? { color: c.foreground, textDecorationLine: "underline" } : null]} numberOfLines={1}>{meta}</Text>
+              <Icon name="ArrowUpRight" size={12} color={state.hovered ? c.foreground : c.foregroundMuted} />
+            </>
+          )}
         </Pressable>
-        {onOpenSession === undefined ? null : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open the session this message will land in"
-            style={styles.action}
-            onPress={() => onOpenSession(item)}
-          >
-            <Text style={styles.link}>Open session</Text>
-          </Pressable>
-        )}
-      </View>
+      )}
+      {actions}
     </View>
   );
 }

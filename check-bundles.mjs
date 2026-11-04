@@ -36,12 +36,13 @@ async function runClientBundle(code) {
     "react/jsx-runtime": {},
     "react-native": {},
     "@tanstack/react-query": {},
-    "@getpaseo/plugin/client/ui": { SettingsAction: () => null, SettingsCard: () => null, SettingsSection: () => null, SettingsSwitch: () => null },
+    "@getpaseo/plugin/client/ui": { Icon: () => null, Modal: () => null, TextInput: () => null, ScrollView: () => null, SidebarRow: () => null, useToast: () => ({ show() {}, error() {} }), SettingsAction: () => null, SettingsCard: () => null, SettingsSection: () => null, SettingsSelect: () => null, SettingsSwitch: () => null },
     "@getpaseo/plugin": contracts,
     "@getpaseo/plugin/client": {
       useRpc: () => async () => ({}),
       useAgent: () => null,
       useWorkspace: () => null,
+      useSettings: () => ({ status: "loading" }),
     },
     "@getpaseo/plugin/client/react-native": {
       Icon: () => null,
@@ -80,6 +81,14 @@ async function runClientBundle(code) {
   const requireFn = (value, what) => {
     if (typeof value !== "function") throw new Error(`${what} is not a function`);
   };
+  // A Lucide name, inline `{ svg }`, or a component (Paseo 0.14+).
+  const requireIcon = (value, what) => {
+    if (typeof value === "function") return;
+    if (typeof value === "string" && value.trim() !== "") return;
+    if (typeof value?.svg === "string" && value.svg.includes("<svg")) return;
+    throw new Error(`Missing ${what}`);
+  };
+  const screenIds = new Set();
 
   const plugin = {
     addSettingsScreen(screen) {
@@ -100,6 +109,34 @@ async function runClientBundle(code) {
       sidebarSurfaces.push({ id, surface: requireId(item?.surface, "sidebar surface id") });
       summary.push(`addSidebarItem(${id})`);
     },
+    addScreen(screen) {
+      const id = requireId(screen?.id, "screen id");
+      if (typeof screen?.title !== "function") requireText(screen?.title, `screen ${id} title`);
+      requireFn(screen?.Component, `screen ${id}`);
+      screenIds.add(id);
+      summary.push(`addScreen(${id})`);
+      return () => {};
+    },
+    addSidebarHeaderItem(item) {
+      const id = requireId(item?.id, "sidebar item id");
+      requireText(item?.title, `sidebar item ${id} title`);
+      requireFn(item?.Component, `sidebar item ${id}`);
+      summary.push(`addSidebarHeaderItem(${id})`);
+      return () => {};
+    },
+    addAgentPanel(panel) {
+      const id = requireId(panel?.id, "agent panel id");
+      requireText(panel?.title, `panel ${id} title`);
+      requireIcon(panel?.icon, `panel ${id} icon`);
+      for (const location of panel?.locations ?? []) {
+        if (location !== "workspace" && location !== "explorer") {
+          throw new Error(`Panel ${id} has an invalid location: ${location}`);
+        }
+      }
+      requireFn(panel?.Component, `panel ${id}`);
+      summary.push(`addAgentPanel(${id})`);
+      return () => {};
+    },
     addWorkspacePanel(panel) {
       const id = requireId(panel?.id, "workspace panel id");
       requireText(panel?.title, `panel ${id} title`);
@@ -114,6 +151,7 @@ async function runClientBundle(code) {
       }
       requireFn(panel?.Component, `panel ${id}`);
       summary.push(`addWorkspacePanel(${id})`);
+      return () => {};
     },
     addCommandCenterItem(item) {
       const id = requireId(item?.id, "Command Center item id");
@@ -136,7 +174,7 @@ async function runClientBundle(code) {
       requireText(pill?.id, "composer pill id");
       if (pill?.button !== undefined) {
         requireText(pill.button.title, `composer pill ${pill.id} title`);
-        requireText(pill.button.icon, `composer pill ${pill.id} icon`);
+        requireIcon(pill.button.icon, `composer pill ${pill.id} icon`);
       }
       return () => {};
     },
@@ -153,6 +191,7 @@ async function runClientBundle(code) {
       }
       requireFn(transformer?.transform, `timeline transformer ${id}`);
       summary.push(`addTimelineTransformer(${id})`);
+      return () => {};
     },
     addTimelineRenderer(renderer) {
       const kind = requireId(renderer?.kind, "timeline renderer kind");
@@ -161,6 +200,7 @@ async function runClientBundle(code) {
         throw new Error(`Timeline renderer ${kind} has an invalid schema or version`);
       }
       summary.push(`addTimelineRenderer(${kind})`);
+      return () => {};
     },
     handle() {
       throw new Error("server.handle reached the client bundle");
@@ -176,6 +216,10 @@ async function runClientBundle(code) {
       : { items: [], settings: { pillMode: "always" } },
     openPanel() {},
     openSurface() {},
+    openScreen({ screenId }) {
+      if (!screenIds.has(screenId)) throw new Error(`openScreen: unknown screen ${screenId}`);
+    },
+    openSettings() {},
   };
 
   const cleanup = contribute(plugin);

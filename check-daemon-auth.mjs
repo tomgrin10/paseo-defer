@@ -39,7 +39,7 @@ function load(files = new Map()) {
         providers: [
           {
             providerId: "provider-a",
-            windows: [{ id: "session", resetsAt: "2026-09-02T15:00:00Z" }],
+            windows: [{ id: "session", resetsAt: "2026-09-02T15:00:00Z", usedPct: 86.4 }],
           },
           {
             providerId: "provider-b",
@@ -106,6 +106,11 @@ try {
   check(secondProvider === "2026-09-02T20:00:00.000Z", "a second provider does not reuse the first provider's cache");
   check(firstProviderAgain === firstProvider, "a provider reuses its own cached reset");
   check(runtime.usageReads.length === 2, "usage is fetched once per provider within the cache window");
+  const firstWindow = await runtime.graph.fetchSessionWindow("provider-a");
+  const secondWindow = await runtime.graph.fetchSessionWindow("provider-b");
+  check(firstWindow.usedPct === 86.4 && firstWindow.resetsAt === firstProvider, "the window read carries the share already used");
+  check(secondWindow.usedPct === null, "a provider that reports no share claims none");
+  check(runtime.usageReads.length === 2, "the share comes from the same cached read");
 
   process.env.PASEO_PASSWORD_FILE = "/run/paseo/missing";
   runtime = load();

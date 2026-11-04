@@ -258,7 +258,7 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 
-async function harness({ editing = null, acceptComposerDraft = false, beforeMount, resetsAt = null } = {}) {
+async function harness({ editing = null, acceptComposerDraft = false, beforeMount, resetsAt = null, usedPct = null } = {}) {
   const rpc = createRpcLog();
   const created = [];
   const saved = [];
@@ -285,7 +285,7 @@ async function harness({ editing = null, acceptComposerDraft = false, beforeMoun
     },
     "@getpaseo/plugin": { defineRpc: (d) => d },
     "@getpaseo/plugin/client": { useRpc: rpc.useRpc },
-    "@getpaseo/plugin/client/react-native": { TextInput: HOST_TEXT_INPUT },
+    "@getpaseo/plugin/client/ui": { TextInput: HOST_TEXT_INPUT, Icon: "Icon" },
   };
   const graph = instantiateBundle(CODE, (id) => {
     if (id === "zod") return zod;
@@ -298,6 +298,7 @@ async function harness({ editing = null, acceptComposerDraft = false, beforeMoun
     styles: graph.deferStyles(THEME, { compact: false, platform: "web" }),
     agentId: "agent-1",
     resetsAt,
+    usedPct,
     usageError: null,
     editing: editingItem,
     onEditingChange: (item) => {
@@ -321,6 +322,7 @@ async function harness({ editing = null, acceptComposerDraft = false, beforeMoun
   return {
     graph,
     rpc,
+    tree: () => runtime.tree(),
     created,
     saved,
     find,
@@ -351,6 +353,10 @@ try {
   check(ui.selected("Deliver 15m"), "a preset is chosen to begin with");
   check(ui.find("How long to wait") === undefined, "the wait field stays out of the way until asked for");
   check(ui.find("Delivery time") === undefined, "the time field stays out of the way until asked for");
+  check(/Sends (today|tomorrow) at .* · in 15m/.test(ui.text()), "a preset says when it sends before anything is queued");
+  ui.press("Deliver 3h");
+  check(/Sends (today|tomorrow) at .* · in 3h/.test(ui.text()), "the send time follows the chosen preset");
+  ui.press("Deliver 15m");
 
   // A multi-day provider window needs the date in the compact reset chip. A
   // clock alone looks like the reset is later today, which is especially
@@ -365,6 +371,12 @@ try {
   );
   resetUi.press("Deliver Session reset");
   check(resetUi.text().includes(`Next reset ${resetDate}`), "the selected reset hint names the same date");
+  check(!resetUi.text().includes("of the window used"), "no usage share is claimed when the provider gave none");
+  const usageUi = await harness({ resetsAt: farReset, usedPct: 86.4 });
+  usageUi.press("Deliver Session reset");
+  check(usageUi.text().includes("86% of the window used"), "the reset hint says how much of the window is spent");
+  const bar = [...walk(usageUi.tree())].find((node) => typeof node?.type === "function" && node.type.name === "UsageBar");
+  check(bar?.props.usedPct === 86.4, "the usage bar draws the same share");
 
   // --- A typed wait: the case no preset chip can cover ---
   ui.press("Deliver In…");
@@ -467,10 +479,13 @@ try {
     error: null,
   };
   const edit = await harness({ editing: queued });
-  check(edit.selected("Deliver In…"), "editing a typed wait comes back to the In… option");
-  check(edit.find("How long to wait")?.props.value === "7m", "editing a typed wait shows the wait, not the clock time");
+  // An edit opens on the time the message already has, named, and selected.
+  check(edit.selected("Keep the current send time"), "editing starts on the message's own send time");
+  check(edit.text().includes(`Keep · ${edit.graph.formatClock(queued.dueAt)}`), "the kept option names the time it keeps");
+  check(!["Deliver 15m", "Deliver 1h", "Deliver 3h", "Deliver In…", "Deliver At…"].some((label) => edit.selected(label)), "no other option claims to be the current timing");
   check(edit.find("Message to defer")?.props.value === "already waiting", "editing loads the message");
-  check(edit.text().includes(`Sends ${edit.graph.describeInstant(queued.dueAt)}.`), "editing confirms the preserved delivery time rather than restarting the shown wait");
+  check(edit.text().includes(`Sends ${edit.graph.describeInstant(queued.dueAt)}`), "editing confirms the preserved delivery time rather than restarting the shown wait");
+  check(edit.find("Keep the current send time") !== undefined && !edit.text().includes("Timing only changes"), "the kept time explains itself without a caveat");
 
   edit.type("Message to defer", "fixed a typo");
   edit.press("Save this deferred message");
@@ -480,6 +495,14 @@ try {
   check(untouched?.input.text === "fixed a typo", "an edit saves the new text");
   // The wait round-trips through its own label, so re-saving must not restart it.
   check(untouched?.input.trigger === undefined, "fixing the text of a typed wait does not re-anchor it");
+
+  // Opening In… on the same message shows its typed wait, and saving that unchanged still keeps the time.
+  const reopened = await harness({ editing: queued });
+  reopened.press("Deliver In…");
+  check(reopened.find("How long to wait")?.props.value === "7m", "editing a typed wait shows the wait, not the clock time");
+  reopened.press("Save this deferred message");
+  await settle();
+  check(reopened.rpc.of("defer.update")[0]?.input.trigger === undefined, "re-saving the same typed wait does not re-anchor it");
 
   const retime = await harness({ editing: queued });
   retime.press("Deliver 1h");
@@ -501,6 +524,7 @@ try {
     handed.value("Message to defer") === "look at the failing test",
     "what was typed in the prompt box is in the message box as the panel opens",
   );
+  check(handed.text().includes("Clear it there so it isn't sent twice"), "a copied draft warns that the prompt box still holds it");
 
   composerDraft = "a later prompt";
   handed.graph.offerComposerDraft("agent-1");
@@ -516,6 +540,7 @@ try {
     handed.value("Message to defer") === "my own words",
     "a hand-over never overwrites a message being written",
   );
+  check(!handed.text().includes("Clear it there"), "the copy warning goes once the message is the user's own");
 
   handed.type("Message to defer", "");
   handed.graph.offerComposerDraft("agent-1");
