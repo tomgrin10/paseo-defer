@@ -61,6 +61,9 @@ function fakePlugin() {
     addSurface: () => noop,
     addSidebarItem: noop,
     addWorkspacePanel: noop,
+    addAgentPanel: () => noop,
+    addScreen: () => noop,
+    addSidebarHeaderItem: () => noop,
     addCommandCenterItem: () => noop,
     addSlashCommand: (contribution) => registered.push(contribution),
     addComposerPill: () => noop,
@@ -73,6 +76,8 @@ function fakePlugin() {
     },
     rpc: async () => ({ items: [], settings: { pillMode: "always" } }),
     openPanel: noop,
+    openScreen: noop,
+    openSettings: noop,
   };
   return { plugin, registered };
 }

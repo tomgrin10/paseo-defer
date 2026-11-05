@@ -79,6 +79,8 @@ export const listDeferred = defineRpc({
     items: z.array(DeferredSchema),
     /** Next provider window reset, so the UI can label the sessionReset option. */
     sessionResetsAt: z.string().nullable(),
+    /** Share of that window already used (0–100). Optional so older daemons still parse. */
+    sessionUsedPct: z.number().nullable().optional(),
     usageError: z.string().nullable(),
     /** Carried here because the pill already polls this call. */
     settings: SettingsSchema,

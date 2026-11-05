@@ -1,5 +1,5 @@
 import { useRpc } from "@getpaseo/plugin/client";
-import { useToast } from "@getpaseo/plugin/client/react-native";
+import { useToast } from "@getpaseo/plugin/client/ui";
 import { useRef, useState } from "react";
 import { updateDeferred, type Deferred } from "../shared/defer";
 

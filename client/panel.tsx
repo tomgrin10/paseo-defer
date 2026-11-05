@@ -1,43 +1,29 @@
-import {
-  type PluginAgentPanelProps,
-  useAgent,
-  useRpc,
-  useWorkspace,
-} from "@getpaseo/plugin/client";
-import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import { type PluginAgentPanelProps, useAgent, useRpc, useWorkspace } from "@getpaseo/plugin/client";
+import { useToast } from "@getpaseo/plugin/client/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
-import {
-  cancelDeferred,
-  clearSettled,
-  listDeferred,
-  DEFAULT_SETTINGS,
-  type Deferred,
-} from "../shared/defer";
-import { DeferComposer, DeferredRow, PillSetting, deferStyles } from "./composer";
+import { ScrollView, Text, View } from "react-native";
+import { cancelDeferred, clearSettled, listDeferred, updateDeferred, type Deferred } from "../shared/defer";
+import { DeferComposer, DeferredRow, deferStyles } from "./composer";
+import { Button, Card, errorText, GroupLabel, text, tickFor, useNow } from "./kit";
 import { notifyDeferChanged } from "./refresh";
 import { useSendNow } from "./send-now";
-import { queuedLabel, stateLabel, stateTone } from "../shared/format";
+import { tabular, toneColor } from "./theme";
+import { byDueAt, describeActivity, formatClock, queuedLabel, snoozeTrigger } from "../shared/format";
 
-export function DeferPanel({
-  theme,
-  layout,
-  agentId,
-  workspaceId,
-  navigation,
-}: PluginAgentPanelProps) {
-  const agent = useAgent(agentId, (snapshot) => ({
-    status: snapshot.status,
-    title: snapshot.title,
-    provider: snapshot.provider,
-  }));
-  const workspace = useWorkspace(workspaceId, (snapshot) => ({
-    name: snapshot.name,
-    title: snapshot.title,
-  }));
+/**
+ * The per-session Defer panel, opened from ⌘K "Defer a message" and from a
+ * `/defer` line that named no time. The pill's popover covers the same ground
+ * in place; this is the roomier version with the session's recent activity.
+ */
+export function DeferPanel(props: PluginAgentPanelProps) {
+  const { theme, layout, workspaceId, navigation } = props;
+  const agentId = props.params?.agentId ?? props.agentId;
+  const agent = useAgent(agentId, (snapshot) => ({ status: snapshot.status, title: snapshot.title }));
+  const workspace = useWorkspace(workspaceId, (snapshot) => ({ name: snapshot.name, title: snapshot.title }));
   const list = useRpc(listDeferred);
   const cancel = useRpc(cancelDeferred);
+  const update = useRpc(updateDeferred);
   const clear = useRpc(clearSettled);
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -57,26 +43,39 @@ export function DeferPanel({
   };
   const send = useSendNow(invalidate);
   const styles = useMemo(() => deferStyles(theme, layout), [theme, layout]);
+  const c = theme.colors;
+  const t = text(c);
 
   const items = queue.data?.items ?? [];
-  const pending = items.filter((item) => item.state === "pending" || item.state === "sending");
+  const pending = byDueAt(items.filter((item) => item.state === "pending" || item.state === "sending"));
   const settled = items.filter((item) => item.state !== "pending" && item.state !== "sending");
   const editing = items.find((item) => item.id === editingId) ?? null;
+  const now = useNow(tickFor(pending, Date.now()));
 
-  const sessionTitle = agent?.title?.trim() ?? "";
+  const sessionTitle = agent?.title?.trim() || "Untitled session";
   const workspaceLabel = workspace?.title?.trim() || workspace?.name?.trim() || "";
-  const sessionMeta = [workspaceLabel, agent?.provider ?? "", agent?.status ?? ""]
-    .filter((part) => part !== "")
-    .join(" · ");
+  const working = agent?.status === "running" || agent?.status === "initializing";
 
   function onCancel(item: Deferred) {
     if (editingId === item.id) setEditingId(null);
     void cancel({ id: item.id })
-      .then(() => {
-        toast.show("Deferred message cancelled");
+      .then(({ ok }) => {
+        toast.show(ok ? "Deferred message cancelled" : "That message was already on its way.");
         return invalidate();
       })
-      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => toast.error(errorText(error)));
+  }
+
+  function onSnooze(item: Deferred) {
+    const trigger = snoozeTrigger(item);
+    if (trigger === null) return;
+    void update({ id: item.id, trigger })
+      .then((result) => {
+        if (result.error !== null || result.item === null) throw new Error(result.error ?? "That message is no longer waiting.");
+        toast.show(`Moved to ${formatClock(result.item.dueAt)}`);
+        return invalidate();
+      })
+      .catch((error: unknown) => toast.error(errorText(error)));
   }
 
   // This panel sits in front of the session it writes to, so queueing a message
@@ -89,37 +88,24 @@ export function DeferPanel({
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.body}>
-      <View style={styles.row}>
-        <Icon name="Clock" size={16} color={theme.colors.foregroundMuted} />
-        <Text style={styles.heading}>
-          {editing === null ? "Defer a message" : "Edit deferred message"}
+    <ScrollView style={styles.screen} contentContainerStyle={[styles.body, { maxWidth: 600, width: "100%" }]}>
+      <View style={{ gap: 3 }}>
+        <Text accessibilityRole="header" style={t.title} numberOfLines={1}>
+          {editing === null ? `Defer to ${sessionTitle}` : "Edit deferred message"}
+        </Text>
+        <Text style={t.meta} numberOfLines={2}>
+          {[workspaceLabel, working ? "Agent is working: messages wait for this turn to end" : "Agent is idle: a due message sends within seconds"]
+            .filter((part) => part !== "")
+            .join(" · ")}
         </Text>
       </View>
-
-      <View style={styles.target}>
-        <Text style={styles.targetTitle} numberOfLines={1}>
-          {sessionTitle === "" ? "Untitled session" : sessionTitle}
-        </Text>
-        <Text style={styles.targetMeta} numberOfLines={1}>
-          {sessionMeta}
-        </Text>
-        <Text style={styles.targetMeta} numberOfLines={1} selectable>
-          {agentId}
-        </Text>
-      </View>
-
-      <Text style={styles.hint}>
-        {agent?.status === "idle"
-          ? "This session is idle, so a due message is delivered on the next check."
-          : "Delivery waits until this session finishes its current turn."}
-      </Text>
 
       <DeferComposer
         theme={theme}
         styles={styles}
         agentId={agentId}
         resetsAt={queue.data?.sessionResetsAt ?? null}
+        usedPct={queue.data?.sessionUsedPct ?? null}
         usageError={queue.data?.usageError ?? null}
         editing={editing}
         onEditingChange={(item) => setEditingId(item?.id ?? null)}
@@ -128,59 +114,70 @@ export function DeferPanel({
         acceptComposerDraft
       />
 
-      <Text style={styles.heading}>{`Deferred for this session (${pending.length})`}</Text>
-      {pending.length === 0 ? <Text style={styles.hint}>Nothing waiting for this session.</Text> : null}
-      {pending.map((item) => (
-        <DeferredRow
-          key={item.id}
-          styles={styles}
-          item={item}
-          meta={stateLabel(item)}
-          editing={editingId === item.id}
-          onEdit={(target) => setEditingId(target.id)}
-          onSendNow={send.sendNow}
-          scheduling={send.isPending(item.id)}
-          onCancel={onCancel}
-        />
-      ))}
+      <View style={{ gap: 8, marginTop: 8 }}>
+        {pending.length === 0 ? <Text style={t.meta}>Nothing is waiting for this session.</Text> : <GroupLabel theme={theme} label="Waiting" count={pending.length} />}
+        {pending.length === 0 ? null : <Card theme={theme} style={{ paddingHorizontal: layout.compact ? 14 : 16 }}>
+        {pending.map((item, index) => (
+          <View key={item.id} style={index === 0 ? undefined : { borderTopWidth: 1, borderTopColor: c.border }}>
+            <DeferredRow
+              styles={styles}
+              item={item}
+              meta=""
+              now={now}
+              editing={editingId === item.id}
+              onEdit={(target) => setEditingId(target.id)}
+              onSendNow={send.sendNow}
+              scheduling={send.isPending(item.id)}
+              onSnooze={onSnooze}
+              onCancel={onCancel}
+            />
+          </View>
+        ))}
+        </Card>}
+      </View>
 
       {settled.length > 0 ? (
-        <>
-          <View style={styles.row}>
-            <Text style={styles.heading}>{`History (${settled.length})`}</Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Clear delivered and failed messages"
+        <View style={{ gap: 8, marginTop: 8 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <GroupLabel theme={theme} label="Recent activity" />
+            <Button
+              theme={theme}
+              kind="ghost"
+              small
+              compact={layout.compact}
+              title="Clear"
+              accessibilityLabel="Clear sent, cancelled and failed messages"
               onPress={() => {
                 void clear({ agentId })
                   .then(({ removed }) => {
-                    toast.show(`Cleared ${removed} message(s)`);
+                    toast.show(removed === 1 ? "Cleared 1 message from activity" : `Cleared ${removed} messages from activity`);
                     return invalidate();
                   })
-                  .catch((error: unknown) =>
-                    toast.error(error instanceof Error ? error.message : String(error)),
-                  );
+                  .catch((error: unknown) => toast.error(errorText(error)));
               }}
-            >
-              <Text style={styles.link}>Clear</Text>
-            </Pressable>
+            />
           </View>
-          {settled.map((item) => (
-            <View key={item.id} style={styles.item}>
-              <Text style={styles.itemMeta} numberOfLines={2}>
-                {item.text}
-              </Text>
-              <Text style={styles.tone[stateTone(item)]}>{stateLabel(item)}</Text>
-            </View>
-          ))}
-        </>
+          <Card theme={theme} style={{ paddingHorizontal: layout.compact ? 14 : 16 }}>
+          {settled.map((item, index) => {
+            const entry = describeActivity(item);
+            if (entry === null) return null;
+            const at = item.settledAt ?? item.createdAt;
+            return (
+              <View key={item.id} style={{ flexDirection: "row", gap: 12, paddingVertical: 10, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: c.border }}>
+                <Text style={[t.meta, tabular, { width: layout.compact ? 62 : 72 }]}>{formatClock(at)}</Text>
+                <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
+                  <Text style={t.meta} numberOfLines={2}>
+                    <Text style={{ color: toneColor(c, entry.tone), fontWeight: "600" }}>{entry.verb}</Text>
+                    {entry.detail === "" ? "" : ` · ${entry.detail}`}
+                  </Text>
+                  <Text style={[t.meta, { color: c.foreground }]} numberOfLines={1}>{item.text}</Text>
+                </View>
+              </View>
+            );
+          })}
+          </Card>
+        </View>
       ) : null}
-
-      <PillSetting
-        styles={styles}
-        mode={(queue.data?.settings ?? DEFAULT_SETTINGS).pillMode}
-        onSaved={invalidate}
-      />
     </ScrollView>
   );
 }

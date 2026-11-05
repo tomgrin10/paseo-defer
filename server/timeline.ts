@@ -97,6 +97,7 @@ export class DeferredTimeline {
         const data: DeferTimelineData = visible ? {
           id: item.id, text: item.text.length > 2000 ? `${item.text.slice(0, 2000)}…` : item.text,
           trigger: item.trigger, dueAt: item.dueAt, createdAt: item.createdAt, state: item.state as "pending" | "sending" | "failed",
+          ...(item.state === "failed" ? { error: typeof item.error === "string" ? item.error.slice(0, 500) : null } : {}),
         } : { state: "settled" };
         const fingerprint = JSON.stringify(data);
         if (this.fingerprints.get(row.id) !== fingerprint) {

@@ -12,7 +12,7 @@ import {
   updateDeferred,
   updateSettings,
 } from "./shared/defer";
-import { fetchSessionResetsAt, fetchSessions, getProviderByAgentId, withDaemon } from "./server/daemon";
+import { fetchSessionWindow, fetchSessions, getProviderByAgentId, withDaemon } from "./server/daemon";
 import { createDeferredItem, updateDeferredItem } from "./server/queue";
 import { settings } from "./server/settings";
 import { dataDir, store } from "./server/store";
@@ -38,16 +38,17 @@ export default function contribute(server: PluginServerContext) {
     const all = await store.list();
     const items = agentId === undefined ? all : all.filter((item) => item.agentId === agentId);
     let sessionResetsAt: string | null = null;
+    let sessionUsedPct: number | null = null;
     let usageError: string | null = null;
     try {
       const providerAgentId = usageAgentId ?? agentId;
       const provider = await getProviderByAgentId(providerAgentId);
-      sessionResetsAt = provider === null ? null : await fetchSessionResetsAt(provider);
+      if (provider !== null) ({ resetsAt: sessionResetsAt, usedPct: sessionUsedPct } = await fetchSessionWindow(provider));
     } catch (error) {
       usageError = error instanceof Error ? error.message : String(error);
     }
     items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-    return { items, sessionResetsAt, usageError, settings: await settings.read() };
+    return { items, sessionResetsAt, sessionUsedPct, usageError, settings: await settings.read() };
   });
 
   server.handle(listTimelineDeferred, async ({ agentId }, { paseo }) => {

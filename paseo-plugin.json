@@ -1,6 +1,15 @@
 {
   "id": "paseo-defer",
+  "name": "Defer",
   "icon": "assets/icon.png",
+  "description": "Queue a message for an agent and send it later: after a delay, at a set time, or when your usage window resets.",
+  "media": [
+    "docs/media/defer-hero.png",
+    "docs/media/defer-flow.gif",
+    "docs/media/defer-screen.png",
+    "docs/media/defer-chat.png",
+    "docs/media/defer-mobile.png"
+  ],
   "requirements": {
     "paseo": ">=0.14.0"
   }

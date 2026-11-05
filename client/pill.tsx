@@ -1,6 +1,6 @@
 import type { PluginCleanup, PluginTheme } from "@getpaseo/plugin";
-import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import type { PluginButtonContentProps, PluginButtonIconProps, PluginClientContext } from "@getpaseo/plugin/client";
+import { Icon, useToast } from "@getpaseo/plugin/client/ui";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import {
@@ -11,7 +11,10 @@ import {
   type PillMode,
   type Trigger,
 } from "../shared/defer";
-import { pillLabel, queuedLabel, stateLabel } from "../shared/format";
+import { byDueAt, deferredTitle, pillLabel, queuedLabel, stateLabel } from "../shared/format";
+import { tickFor, TimerGlyph, useNow } from "./kit";
+import type { LiveQueue } from "./live";
+import { IconSwap } from "./motion";
 import { canObserveAgents, followAgents, type AgentList, type AgentUpdate } from "./agents";
 import { offerComposerDraft, readComposerDraft } from "./handoff";
 import { DeferPopoverContent } from "./popover";
@@ -407,8 +410,37 @@ function createDeferPill(
  * Headless client contribution. Registered from `index.client.tsx`, once per
  * plugin installation in each connected app.
  */
-export function contributeClient(client: PluginClientContext): PluginCleanup {
+export function contributeClient(client: PluginClientContext, live?: LiveQueue): PluginCleanup {
   const store = createPillStore();
+
+  /** The popover, with a way through to every session's queue. */
+  function PopoverContent(props: PluginButtonContentProps) {
+    return <DeferPopoverContent {...props} openQueue={() => client.openScreen({ screenId: "overview" })} />;
+  }
+
+  /**
+   * The pill's icon: a plain clock while nothing waits, then the timer glyph
+   * draining toward the next send, so the pill reads at a glance without its
+   * label. Reads the same store as the label, so the two never disagree.
+   */
+  function PillIcon(props: PluginButtonIconProps) {
+    const agentId = props.context === "agent" ? props.agentId : "";
+    const subscribe = useCallback((listener: () => void) => store.subscribe(listener), []);
+    const read = useCallback(() => store.items(agentId), [agentId]);
+    const items = useSyncExternalStore(subscribe, read, read);
+    const next = items.length === 0 ? undefined : byDueAt(items)[0];
+    const now = useNow(next === undefined ? 60_000 : tickFor([next], Date.now()));
+    return (
+      <IconSwap swapKey={next === undefined ? "idle" : next.state === "sending" ? "sending" : "timer"} size={props.size}>
+        {next === undefined ? (
+          <Icon name="Clock" size={props.size} color={props.color} />
+        ) : (
+          <TimerGlyph item={next} now={now} size={props.size} color={props.color} />
+        )}
+      </IconSwap>
+    );
+  }
+
   const DeferPill = createDeferPill(store, openPanelFor, quickDefer);
   /** Live sessions, agentId -> workspaceId. One pill each. */
   const sessions = new Map<string, string>();
@@ -557,11 +589,15 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
   }
 
   /** The host renders a pill's title as its hover tooltip. */
+  /**
+   * The host shows a pill's title as its tooltip and, on phones, as the title
+   * of the sheet the popover opens in, so it is a short summary rather than
+   * the messages themselves.
+   */
   function titleFor(agentId: string): string {
     const items = store.items(agentId);
     if (items.length === 0) return IDLE_TITLE;
-    if (items.length === 1) return `Deferred: ${items[0].text}`;
-    return `Deferred messages:\n${items.map((item) => `• ${item.text}`).join("\n")}`;
+    return deferredTitle(items);
   }
 
   function normalizeRegistration(value: unknown): PillRegistration {
@@ -607,11 +643,11 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
           // this popover descriptor instead of opening the full panel as a tab.
           button: {
             title: titleFor(agentId),
-            icon: "Clock",
+            icon: PillIcon,
             label: labelFor(agentId),
             behavior: {
               kind: "popover" as const,
-              Content: DeferPopoverContent,
+              Content: PopoverContent,
             },
           },
         };
@@ -650,6 +686,7 @@ export function contributeClient(client: PluginClientContext): PluginCleanup {
       const { items, settings } = await client.rpc(listDeferred, {});
       if (stopped) return;
       pillMode = settings.pillMode;
+      live?.publish(items);
       const byAgent = new Map<string, Deferred[]>();
       for (const item of items) {
         if (!isWaiting(item)) continue;

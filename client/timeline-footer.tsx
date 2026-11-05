@@ -27,7 +27,7 @@ export function DeferredTimelineFooter(props: FooterProps) {
     <View style={{ gap: 8 }}>
       {items.map(item => item.state === "pending" || item.state === "sending" || item.state === "failed" ? (
         <DeferredMessage key={item.id} {...props} timestamp={new Date(item.createdAt)} item={{ type: "plugin", kind: DEFER_TIMELINE_KIND, version: 1, data: {
-          ...item, state: item.state, text: item.text.length > 2000 ? `${item.text.slice(0, 2000)}…` : item.text,
+          ...item, state: item.state, error: item.error, text: item.text.length > 2000 ? `${item.text.slice(0, 2000)}…` : item.text,
         } }} />
       ) : null)}
       {queue.error ? (

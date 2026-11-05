@@ -11,7 +11,7 @@ function* walk(tree) {
   for (const child of [tree.props?.children].flat(Infinity)) yield* walk(child);
 }
 for (const [entry, exported] of [["panel", "DeferPanel"], ["popover", "DeferPopoverContent"], ["surface", "DeferOverview"]]) {
-  const built = await build({ entryPoints: [`client/${entry}.tsx`], bundle: true, write: false, format: "cjs", platform: "neutral", external: ["react", "react/jsx-runtime", "react-native", "@getpaseo/plugin/client", "@getpaseo/plugin/client/react-native", "@tanstack/react-query", "./composer", "./handoff", "./refresh", "zod"] });
+  const built = await build({ entryPoints: [`client/${entry}.tsx`], bundle: true, write: false, format: "cjs", platform: "neutral", external: ["react", "react/jsx-runtime", "react-native", "@getpaseo/plugin/client", "@getpaseo/plugin/client/ui", "@tanstack/react-query", "./composer", "./handoff", "./kit", "./refresh", "zod"] });
   const slots = []; let cursor = 0, resolveUpdate, rejectUpdate, refreshFailure = false, notifications = 0;
   const calls = [], messages = [], errors = [], invalidations = [];
   const graph = instantiateBundle(built.outputFiles[0].text, id => {
@@ -23,7 +23,8 @@ for (const [entry, exported] of [["panel", "DeferPanel"], ["popover", "DeferPopo
       useEffect() {}, useMemo: fn => fn(),
     };
     if (id === "react-native") return { Text: "Text", View: "View", Pressable: "Pressable", ScrollView: "ScrollView", TextInput: "TextInput" };
-    if (id === "@getpaseo/plugin/client/react-native") return { Icon: "Icon", useToast: () => ({ show: message => messages.push(message), error: message => errors.push(message) }) };
+    if (id === "@getpaseo/plugin/client/ui") return { Icon: "Icon", Modal: "Modal", TextInput: "TextInput", useToast: () => ({ show: message => messages.push(message), error: message => errors.push(message) }) };
+    if (id === "./kit") return { Button: "Button", Card: "Card", Chip: "Chip", GroupLabel: "GroupLabel", IconButton: "IconButton", rowActions: () => null, text: () => ({}), tickFor: () => 15_000, useNow: () => Date.now(), errorText: error => error instanceof Error ? error.message : String(error) };
     if (id === "@getpaseo/plugin/client") return {
       useAgent: () => ({ status: "running", title: "Fixture" }), useWorkspace: () => ({ name: "Fixture" }),
       useRpc: contract => input => {

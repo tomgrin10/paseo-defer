@@ -103,9 +103,11 @@ const STUBS = {
   "@tanstack/react-query": {},
   "@getpaseo/plugin": { defineRpc: (d) => d },
   "@getpaseo/plugin/client": {},
-  "@getpaseo/plugin/client/react-native": {
+  "@getpaseo/plugin/client/ui": {
     Icon: () => null,
     Modal: () => null,
+    TextInput: () => null,
+    ScrollView: () => null,
     useToast: () => toasts,
   },
 };
@@ -123,7 +125,8 @@ function check(condition, description) {
 const ENTRY = resolve(DIR, ".check-pill.entry.ts");
 const ENTRY_SOURCE = `export { contributeClient } from "./client/pill";
 export { notifyDeferChanged } from "./client/refresh";
-export { pillLabel } from "./shared/format";
+export { pillLabel, deferredTitle } from "./shared/format";
+export { createLiveQueue } from "./client/live";
 export { onComposerDraftOffered } from "./client/handoff";
 `;
 
@@ -596,8 +599,16 @@ try {
     "one waiting message labels its due time",
   );
   check(
-    graph.pillLabel([deferred("a", "agent-1", 1), deferred("b", "agent-1", 2)]) === "2 deferred",
-    "several waiting messages label the count",
+    graph.pillLabel([deferred("a", "agent-1", 1), deferred("b", "agent-1", 2)]).startsWith("2 · "),
+    "several waiting messages lead with the count",
+  );
+  check(
+    graph.pillLabel([deferred("far", "agent-1", 5 * 3600_000), deferred("near", "agent-1", 20 * 60_000)]) === "2 · in 20m",
+    "several waiting messages name the soonest send",
+  );
+  check(
+    !graph.pillLabel([deferred("far", "agent-1", 5 * 3600_000)]).startsWith("in "),
+    "a send more than an hour away is named by its clock time",
   );
 
   let items = [];
@@ -609,7 +620,8 @@ try {
     pillMode: () => pillMode,
   });
 
-  const cleanup = graph.contributeClient(fake.client);
+  const liveQueue = graph.createLiveQueue();
+  const cleanup = graph.contributeClient(fake.client, liveQueue);
   check(typeof cleanup === "function", "the entrypoint returns a cleanup function");
   await wait(50);
   check(
@@ -752,9 +764,11 @@ try {
   check(live(fake).length === 1, "queueing a message does not add a second pill");
   check(textOf(draw()).includes("in "), "a waiting message replaces the button label");
   check(
-    registration?.button?.title === "Deferred: message one",
-    "the host hover tooltip shows the deferred message",
+    registration?.button?.title?.startsWith("1 deferred · next "),
+    "the host tooltip, and the phone sheet's title, summarise the queue",
   );
+  check(typeof registration?.button?.icon === "function", "the pill's icon is the live timer component");
+  check(liveQueue.waiting().length === 1, "the pill's poll publishes the queue for the sidebar row");
 
   // The pill toggles the preview card; the card is what opens the panel.
   registration?.onPress();
