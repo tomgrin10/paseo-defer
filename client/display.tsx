@@ -22,8 +22,8 @@ export const OVERVIEW_SCREEN = "overview";
 
 type PillChoice = PillMode | "off";
 const PILL_CHOICES: { value: PillChoice; label: string; hint: string }[] = [
-  { value: "always", label: "Every session", hint: "Defer sits above every message box and shows the next send time once a session has a queue." },
-  { value: "waiting", label: "Only while messages wait", hint: "The pill appears only on sessions with something queued." },
+  { value: "always", label: "Every session", hint: "Every session's composer has a Defer button, which shows the next send once that session has a queue." },
+  { value: "waiting", label: "Only while messages wait", hint: "The Defer button appears only on sessions with something queued." },
   { value: "off", label: "Off", hint: "No pill. ⌘K Defer a message and /defer still work." },
 ];
 
@@ -88,7 +88,7 @@ function DisplaySettings({ theme }: PluginSurfaceProps) {
       <SettingsSection title="Where Defer appears" info="⌘K Defer a message and /defer work whatever you hide here.">
         <SettingsCard>
           <SettingsSelect
-            label="Composer pill"
+            label="Composer button"
             hint={choice.hint}
             value={pill}
             options={PILL_CHOICES.map(({ value, label }) => ({ value, label }))}

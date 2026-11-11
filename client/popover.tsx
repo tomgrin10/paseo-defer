@@ -34,9 +34,16 @@ interface DeferPopoverBodyProps {
   agentId: string;
   close(): void;
   openQueue?: (() => void) | undefined;
+  /**
+   * Drawn inside Paseo's `Modal` (the 0.16 composer control), whose own header
+   * carries the title: no heading row, and the way to every queue sits last.
+   */
+  inDialog?: boolean | undefined;
+  /** Told when a waiting row opens in the composer or closes, so a dialog can retitle itself. */
+  onEditingChange?: ((editing: boolean) => void) | undefined;
 }
 
-function DeferPopoverBody({ theme, layout, agentId, close, openQueue }: DeferPopoverBodyProps) {
+export function DeferPopoverBody({ theme, layout, agentId, close, openQueue, inDialog = false, onEditingChange }: DeferPopoverBodyProps) {
   const list = useRpc(listDeferred);
   const cancel = useRpc(cancelDeferred);
   const update = useRpc(updateDeferred);
@@ -71,6 +78,10 @@ function DeferPopoverBody({ theme, layout, agentId, close, openQueue }: DeferPop
   const items = queue.data?.items ?? [];
   const pending = byDueAt(items.filter((item) => item.state === "pending" || item.state === "sending"));
   const editing = pending.find((item) => item.id === editingId) ?? null;
+  const isEditing = editing !== null;
+  useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
   const now = useNow(tickFor(pending, Date.now()));
 
   function onCancel(item: Deferred) {
@@ -103,9 +114,10 @@ function DeferPopoverBody({ theme, layout, agentId, close, openQueue }: DeferPop
   }
 
   const compact = layout.compact;
+  const headed = !compact && !inDialog;
   return (
-    <View style={{ width: compact ? undefined : 400, maxWidth: "100%", gap: 12 }}>
-      {compact ? null : (
+    <View style={{ width: compact || inDialog ? undefined : 400, maxWidth: "100%", gap: 12 }}>
+      {!headed ? null : (
         // On phones the sheet already carries the button's title.
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 28 }}>
           <Text accessibilityRole="header" style={styles.heading}>
@@ -153,8 +165,16 @@ function DeferPopoverBody({ theme, layout, agentId, close, openQueue }: DeferPop
         </View>
       ) : null}
 
+      {inDialog && !compact && openQueue !== undefined ? (
+        // Desktop dialog: Defer stays the only full-width bar; the way to every
+        // queue is a quiet link at the foot.
+        <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+          <Button theme={theme} kind="ghost" small title="All deferred" icon="ArrowUpRight" onPress={() => { close(); openQueue(); }} />
+        </View>
+      ) : null}
+
       {compact && openQueue !== undefined ? (
-        <Button theme={theme} kind="secondary" compact grow title="All deferred messages" icon="ArrowUpRight" onPress={() => { close(); openQueue(); }} />
+        <Button theme={theme} kind="secondary" compact={compact} grow title="All deferred messages" icon="ArrowUpRight" onPress={() => { close(); openQueue(); }} />
       ) : null}
     </View>
   );

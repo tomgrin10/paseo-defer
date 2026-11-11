@@ -19,6 +19,7 @@ import { canObserveAgents, followAgents, type AgentList, type AgentUpdate } from
 import { offerComposerDraft, readComposerDraft } from "./handoff";
 import { clearComposerIfUnchanged } from "./host-composer";
 import { DeferPopoverContent } from "./popover";
+import { AGENT_TAG, createDeferComposerItem, readAgentTag, supportsComposerItem } from "./composer-item";
 import { notifyDeferChanged, onDeferChanged } from "./refresh";
 
 /**
@@ -442,6 +443,18 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     );
   }
 
+  /**
+   * Paseo 0.16 draws Defer inside the composer toolbar instead of as a pill:
+   * one composer item for every composer, so there is nothing to register per
+   * session. The session set is still followed, to tag each live session with
+   * its own id (`AGENT_TAG`), which is how an item learns whose composer it is.
+   */
+  const itemMode = supportsComposerItem(client);
+  /** Sessions this client has already tagged (or tried to), so each is written once. */
+  const tagged = new Set<string>();
+  /** Last-seen metadata tag per session, from the agent stream. */
+  const tags = new Map<string, string | null>();
+
   const DeferPill = createDeferPill(store, openPanelFor, quickDefer);
   /** Live sessions, agentId -> workspaceId. One pill each. */
   const sessions = new Map<string, string>();
@@ -543,8 +556,10 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     id?: string;
     workspaceId?: string | null;
     status?: string;
+    metadata?: Readonly<Record<string, unknown>> | null;
   }): { agentId: string; workspaceId: string } | null {
     const agentId = agent.id;
+    if (itemMode && typeof agentId === "string") tags.set(agentId, readAgentTag(agent.metadata));
     const workspaceId = agent.workspaceId;
     if (typeof agentId !== "string" || agentId === "") return null;
     // A closed session has no composer to put a pill on.
@@ -554,6 +569,7 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
   }
 
   function drop(agentId: string): boolean {
+    tags.delete(agentId);
     return sessions.delete(agentId);
   }
 
@@ -611,9 +627,35 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     return { remove: () => handle.remove(), update: (patch) => handle.update(patch) };
   }
 
+  /**
+   * Writes `AGENT_TAG` onto every live session that does not carry its own id
+   * yet. Once per session per client, and never for a session that has it, so
+   * a settled host sees no writes at all.
+   */
+  function tagSessions(): void {
+    for (const agentId of sessions.keys()) {
+      if (tags.get(agentId) === agentId || tagged.has(agentId)) continue;
+      tagged.add(agentId);
+      try {
+        const ref = client.paseo.agents.ref(agentId) as unknown as {
+          setMetadata?: (patch: Record<string, string>) => Promise<void>;
+        };
+        void ref.setMetadata?.({ [AGENT_TAG]: agentId })?.catch((error: unknown) => {
+          console.warn("[defer] could not tag a session for the composer control", String(error));
+        });
+      } catch (error) {
+        console.warn("[defer] could not tag a session for the composer control", String(error));
+      }
+    }
+  }
+
   /** One pill per live session, mounted where that session's composer is. */
   function reconcilePills(): void {
     if (stopped) return;
+    if (itemMode) {
+      tagSessions();
+      return;
+    }
     for (const [agentId, entry] of [...registered]) {
       if (wanted(agentId) && sessions.get(agentId) === entry.workspaceId) {
         entry.pill.update?.({ label: labelFor(agentId), title: titleFor(agentId), visible: true });
@@ -696,8 +738,10 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
         if (existing === undefined) byAgent.set(item.agentId, [item]);
         else existing.push(item);
       }
-      store.replaceItems(byAgent);
+      // Marked read before the store announces the change: the composer item
+      // reads the mode on that announcement and must see the saved one.
       readQueue = true;
+      store.replaceItems(byAgent);
       reconcilePills();
     } catch (error) {
       // A failed read must not kill the entrypoint: the interval retries, and
@@ -736,6 +780,19 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     () => client.paseo.agents.subscribe(applyAgentUpdate),
   );
 
+  const removeItem = itemMode
+    ? (client as unknown as { addComposerItem(input: { id: string; Component: unknown }): () => void }).addComposerItem({
+        id: "defer",
+        Component: createDeferComposerItem({
+          subscribe: (listener) => store.subscribe(listener),
+          items: (agentId) => store.items(agentId),
+          // Until the saved mode is read, act as "waiting" so a waiting-only user never sees a flash.
+          pillMode: () => (readQueue ? pillMode : "waiting"),
+          openQueue: () => client.openScreen({ screenId: "overview" }),
+        }),
+      })
+    : null;
+
   const unsubscribeChanges = onDeferChanged(scheduleSync);
   const timer = setInterval(() => void sync(), POLL_MS);
   void sync();
@@ -747,6 +804,7 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     clearPreviewTimer();
     unsubscribeChanges();
     unsubscribeAgents();
+    if (typeof removeItem === "function") removeItem();
     for (const entry of registered.values()) entry.pill.remove();
     registered.clear();
     sessions.clear();

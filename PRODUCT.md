@@ -33,7 +33,7 @@ plugins (usage auto-resume, Session Guard) resume work after a limit; Defer send
 
 ## Operating Context
 
-- Entry points: the composer pill above each session's message box (popover), `/defer 2h <message>`
+- Entry points: on Paseo 0.16 a control in each session's composer toolbar (a dialog; a sheet on phones), on older Paseo the composer pill above the message box (popover), `/defer 2h <message>`
   in the composer, ⌘K **Defer a message**, the **Deferred** sidebar screen for every session, and the
   agent tools `defer_list_messages` / `defer_schedule_message`.
 - Each queued message gets a timeline row in its session's chat that updates in place and disappears
