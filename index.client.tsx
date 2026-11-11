@@ -9,6 +9,7 @@ import { DeferPanel } from "./client/panel";
 import { contributeClient } from "./client/pill";
 import { DeferOverview } from "./client/surface";
 import { offerComposerDraft, offerDefer } from "./client/handoff";
+import { attachComposerHost } from "./client/host-composer";
 import { notifyDeferChanged } from "./client/refresh";
 import { createDeferred } from "./shared/defer";
 import { parseDeferCommand } from "./shared/format";
@@ -17,6 +18,8 @@ export default function contribute(host: PluginClientContext) {
   const visibility = withButtonVisibility(host);
   const client = visibility.client;
   const live = createLiveQueue();
+  // Paseo 0.16's composer controls, read from the raw host context.
+  const detachComposer = attachComposerHost(host);
   const openSettings = () => client.openSettings("display");
   const Overview = (props: PluginScreenProps) => <DeferOverview {...props} openSettings={openSettings} />;
 
@@ -76,6 +79,7 @@ export default function contribute(host: PluginClientContext) {
   const removeClient = contributeClient(client, live);
   return () => {
     visibility.dispose();
+    detachComposer();
     removeDisplay();
     for (const remove of removers) if (typeof remove === "function") void remove();
     return removeClient();

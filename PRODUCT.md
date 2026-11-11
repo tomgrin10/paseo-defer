@@ -50,8 +50,10 @@ plugins (usage auto-resume, Session Guard) resume work after a limit; Defer send
   risk a duplicate.
 - Edit, Send now (reschedule to now, still idle-gated), Cancel (kept in history), Delete (timeline),
   Clear history.
-- Composer drafts are copied (not moved) into Defer on desktop and web; Paseo gives plugins no way
-  to clear the prompt box.
+- Composer drafts move into Defer on Paseo 0.16: the live prompt is read through the host's
+  composer controls and the prompt box is emptied once the message is queued, only while it still
+  holds exactly the taken text. On older Paseo they are copied (desktop and web only) and the user
+  clears the prompt box.
 - Paseo ≥ 0.14. No runtime dependencies. Versioned `queue.json` / `settings.json` under
   `$PASEO_HOME/plugin-data/defer`; schema changes need migrations.
 

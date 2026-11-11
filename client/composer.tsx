@@ -11,6 +11,7 @@ import {
   type Trigger,
 } from "../shared/defer";
 import { onComposerDraftOffered } from "./handoff";
+import { canClearComposer, clearComposerIfUnchanged } from "./host-composer";
 import {
   clockPlaceholder,
   describeInstant,
@@ -184,6 +185,8 @@ export function DeferComposer({
   const loadedId = useRef<string | null>(null);
   /** The last text taken from the session's composer, while it is still that. */
   const handedOver = useRef<string | null>(null);
+  /** Whether that text came from the prompt box, rather than a `/defer` line. */
+  const handedOverFromComposer = useRef(false);
   const currentText = useRef(text);
   currentText.current = text;
 
@@ -232,6 +235,7 @@ export function DeferComposer({
       const current = currentText.current;
       if (current.trim() !== "" && current !== handedOver.current) return;
       handedOver.current = offer.text;
+      handedOverFromComposer.current = offer.fromComposer === true;
       setText(offer.text);
     });
   }, [acceptComposerDraft, agentId, editingId]);
@@ -303,22 +307,32 @@ export function DeferComposer({
   }
 
   const submit = useMutation({
-    mutationFn: async (trigger: Trigger): Promise<{ created: Deferred | null }> => {
+    mutationFn: async (trigger: Trigger): Promise<{ created: Deferred | null; taken: string | null }> => {
       const body = text.trim();
       if (editing === null) {
         if (agentId === null) throw new Error("Pick a session first.");
+        // Captured before the request: what is queued has to be exactly what
+        // was taken from the prompt box for Defer to empty that box afterwards.
+        const taken =
+          handedOverFromComposer.current && handedOver.current !== null && text === handedOver.current
+            ? handedOver.current
+            : null;
         const { item } = await create({ agentId, text: body, trigger });
-        return { created: item };
+        return { created: item, taken };
       }
       // Leave timing untouched unless the selection points somewhere else, so
       // fixing a typo cannot silently restart a countdown.
       const retiming = !triggersMatch(trigger, editing);
       const result = await update({ id: editing.id, text: body, ...(retiming ? { trigger } : {}) });
       if (result.error !== null) throw new Error(result.error);
-      return { created: null };
+      return { created: null, taken: null };
     },
-    onSuccess: ({ created }) => {
+    onSuccess: ({ created, taken }) => {
+      // Only once the message is safely queued, and only while the prompt box
+      // still holds exactly what was taken: text typed there since stays.
+      if (created !== null && taken !== null && agentId !== null) clearComposerIfUnchanged(agentId, taken);
       handedOver.current = null;
+      handedOverFromComposer.current = false;
       setText("");
       setClockInput("");
       setDurationInput("");
@@ -335,6 +349,8 @@ export function DeferComposer({
   const isEditing = editing !== null;
   const canSubmit = text.trim() !== "" && !submit.isPending && (isEditing || agentId !== null);
   const fromComposer = handedOver.current !== null && text === handedOver.current && text.trim() !== "";
+  // On Paseo 0.16 Defer empties the prompt box itself once this is queued.
+  const clearsComposer = fromComposer && handedOverFromComposer.current && agentId !== null && canClearComposer(agentId);
 
   function onSubmit() {
     if (text.trim() === "") return;
@@ -380,13 +396,17 @@ export function DeferComposer({
       />
 
       {fromComposer ? (
-        // Paseo gives a plugin no way to clear its prompt box, so the copy left
-        // there would go out a second time if sent.
+        // Before Paseo 0.16 a plugin had no way to clear the prompt box, so the
+        // copy left there would go out a second time if sent.
         <View style={styles.note}>
           <View style={{ paddingTop: 1 }}>
             <Icon name="Copy" size={13} color={c.foregroundMuted} />
           </View>
-          <Text style={[styles.hint, { flex: 1 }]}>Copied from your message box. Clear it there so it isn't sent twice.</Text>
+          <Text style={[styles.hint, { flex: 1 }]}>
+            {clearsComposer
+              ? "Taken from your message box. Defer clears it there once this is queued."
+              : "Copied from your message box. Clear it there so it isn't sent twice."}
+          </Text>
         </View>
       ) : null}
 
