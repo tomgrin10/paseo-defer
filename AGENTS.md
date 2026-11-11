@@ -152,6 +152,8 @@ Check both a light and a dark theme, and a narrow window for the compact layout.
 
 ## Create a release
 
+- Releases need Tom's manual permission. Features and fixes ship as betas (`X.Y.Z-beta.N`, npm `beta` tag) by default. A stable version, npm `latest`, or a hotfix needs Tom's explicit OK for that exact version before it is tagged; never infer it from a plan. For this directory-installed plugin, installing merged main on Tom's VM counts as a beta.
+- **Betas.** Tag `vX.Y.Z-beta.N` after bumping `package.json` and its lockfile to that version. `publish-npm.yml` publishes any version containing `-` with `--tag beta` (`scripts/check-dist-tag.mjs`), then verifies after publishing, on the retry path too, that the expected dist-tag points at the version and that a prerelease is never `latest`. Mark the GitHub release as a prerelease (`gh release create vX.Y.Z-beta.N --prerelease --latest=false`). Install with `paseo plugin update paseo-defer --version X.Y.Z-beta.N`. `release-channel.test.mjs` guards the publish command and the post-publish check.
 - Ordinary feature and bug-fix PRs do not update the package version, lockfile version, pinned README install commands, tags, or release notes. Do not block an implementation PR because release metadata is absent.
 - After the intended user-facing features, bug fixes, compatibility changes, data migrations, or installer changes have merged, prepare a separate release-only change from the current clean `main`. One release may contain multiple merged PRs. Documentation-only edits normally do not need a release.
 - Only perform versioning, tagging, publishing, and public-install verification when explicitly asked to create a release.
@@ -159,7 +161,7 @@ Check both a light and a dark theme, and a narrow window for the compact layout.
 - Update the version in `package.json` and its lockfile, plus the pinned npm and Git versions in the README install section. Keep badge styles consistent; update the Paseo minimum only when compatibility changes.
 - Release notes must include a short summary, user-visible changes, the `paseo plugin add` install command, minimum Paseo version, and any breaking, migration, security, or upgrade considerations. Omit empty sections.
 - Before pushing the release tag, require a clean current `main`, verified GitHub and npm ownership, passing checks, `npm pack --dry-run`, a successful plugin reload, clean logs, and a secret audit of the exact release snapshot.
-- Tag the exact release commit as `vX.Y.Z` and push the tag. `.github/workflows/publish-npm.yml` verifies that the tag matches `package.json`, reruns the release checks, inspects the package, and publishes through npm Trusted Publishing; do not run `npm publish` manually except to recover from a diagnosed workflow failure.
+- Tag the exact release commit as `vX.Y.Z` (or `vX.Y.Z-beta.N`) and push the tag. `.github/workflows/publish-npm.yml` verifies that the tag matches `package.json`, reruns the release checks, inspects the package, and publishes through npm Trusted Publishing; do not run `npm publish` manually except to recover from a diagnosed workflow failure.
 - Wait for the publish workflow and npm registry propagation, then verify installation with `paseo plugin install npm:paseo-defer@X.Y.Z` on Paseo 0.9 or newer. Title the GitHub release `paseo-defer vX.Y.Z`, and test the public tag-pinned installer and badge URLs.
 
 Never move or rewrite a published tag. Ship corrections as a new patch release.
