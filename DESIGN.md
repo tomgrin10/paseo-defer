@@ -25,7 +25,11 @@ Controls are 32px (28px small) on desktop with a 4px hit slop, and 44px in compa
 
 `rowActions` is the one action row for a waiting message. On the left are bordered secondary small buttons with icons: **+10m** (TimerReset; omitted for a reset trigger), **Send now** (SendHorizontal) and **Edit** (Pencil). While the message is open in the composer, Edit is replaced by a muted "Editing" and +10m and Send now are disabled. On the right, set apart, is a ghost **Cancel**. A failed message gets **Send again** (RotateCw) and a ghost **Dismiss**. Compact layouts drop the icons and keep 44px targets.
 
-## Pill and popover
+## Composer control (Paseo 0.16)
+
+On a host with `addComposerItem`, Defer is a native composer control, not a pill: Paseo's own `Action`, drawn by the host as an icon in the composer toolbar, or as a titled row in the composer's overflow sheet when there is no room (always on a phone, where the sheet opens from the model button). Its icon is the plain Clock, muted, while nothing waits, and the live `TimerGlyph` in `foreground` once something does, so a waiting queue stands out from the toolbar's muted icons in either theme. Its title (tooltip, accessibility label and sheet row) leads with the action: **Defer a message**, or "Defer · 2 waiting · next 4:42 PM". The toolbar has no text of Defer's own: the count and next time live in that title, the glyph, the chat cards and the sidebar row. Pressing it opens Paseo's `Modal` titled **Defer a message** (or **Edit deferred message**): a dialog on desktop, a bottom sheet on a phone, holding the popover's content without its heading. Desktop content follows the host dialog's own width rather than the popover's 400px column. A small ghost **All deferred** link closes the content on desktop, so **Defer** stays the only full-width bar; phones keep the full-width button. On a phone the control sits in the composer's overflow sheet, which the dialog stacks over: in Paseo 0.16 a plugin `Action` press does not close that sheet (`ComposerControl` gets no `onActionComplete` from plugin controls) and `PluginComposer` offers no sheet control, only `focus()`. So closing the dialog, by queueing, X or swipe, calls `focus()`, which dismisses the host's overlays and lands in the composer. Asking Paseo to close the overflow sheet on a plugin action, and to name the agent on `PluginComposer`, is drafted upstream. Drafts and New workspace get no control: there is no session to defer to yet.
+
+## Pill and popover (Paseo 0.15 and older)
 
 The composer pill sits above each session's message box. It reads **Defer** with a plain clock when nothing is waiting. Otherwise it reads the next send: "in 47m" inside the hour, the clock after that ("tmrw 9:30 AM"), "due now", "at reset" or "sending…", with the count in front once there is more than one ("2 · 4:42 PM"). Its icon is the live timer glyph. Its title, used as the tooltip and as the phone sheet's title, is "2 deferred · next 4:42 PM".
 
@@ -57,7 +61,7 @@ The per-session panel opens from ⌘K **Defer a message** or from a `/defer` lin
 
 ## Settings and sidebar
 
-The sidebar row is Paseo's `SidebarRow` with a Clock icon. Its title is **Deferred**, and the next send trails it in 12px tabular muted text, read from the same live queue as the pill. Settings → Display uses Paseo's settings kit. One "Where Defer appears" section holds a **Composer pill** select (Every session, Only while messages wait, Off) with the chosen option's rule as its hint, and a **Sidebar row** switch. An info tip says ⌘K and `/defer` keep working.
+The sidebar row is Paseo's `SidebarRow` with a Clock icon. Its title is **Deferred**, and the next send trails it in 12px tabular muted text, read from the same live queue as the pill. Settings → Display uses Paseo's settings kit. One "Where Defer appears" section holds a **Composer button** select (Every session, Only while messages wait, Off) with the chosen option's rule as its hint, and a **Sidebar row** switch. An info tip says ⌘K and `/defer` keep working.
 
 ## Empty, loading and error
 
