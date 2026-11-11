@@ -22,7 +22,7 @@ paseo plugin install paseo-defer
 
 ## Use
 
-Write your message, then press the **Defer** pill above the session's message box (or choose **Defer a message** from ⌘K / Ctrl+K). Defer copies what you typed, so clear the prompt box afterwards. Pick `15m`, `1h` or `3h`, **In…** for any wait up to 30 days, **At…** for a local time, or **Session reset**. The line under the options says exactly when it will send. You can also schedule straight from the composer:
+Write your message, then press the **Defer** pill above the session's message box (or choose **Defer a message** from ⌘K / Ctrl+K). Defer takes what you typed. On Paseo 0.16 it empties the prompt box once the message is queued (unless you changed the box in the meantime); on older Paseo it copies the text, so clear the prompt box afterwards. Pick `15m`, `1h` or `3h`, **In…** for any wait up to 30 days, **At…** for a local time, or **Session reset**. The line under the options says exactly when it will send. You can also schedule straight from the composer:
 
 ```text
 /defer 2h ship the release notes

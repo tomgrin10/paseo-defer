@@ -17,6 +17,7 @@ import type { LiveQueue } from "./live";
 import { IconSwap } from "./motion";
 import { canObserveAgents, followAgents, type AgentList, type AgentUpdate } from "./agents";
 import { offerComposerDraft, readComposerDraft } from "./handoff";
+import { clearComposerIfUnchanged } from "./host-composer";
 import { DeferPopoverContent } from "./popover";
 import { notifyDeferChanged, onDeferChanged } from "./refresh";
 
@@ -501,6 +502,7 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     const text = readComposerDraft(agentId);
     if (text.trim() === "") throw new Error("There is nothing in the prompt box to defer.");
     const { item } = await client.rpc(createDeferred, { agentId, text, trigger });
+    clearComposerIfUnchanged(agentId, text);
     if (!stopped) {
       clearPreviewTimer();
       store.hidePreview(agentId);

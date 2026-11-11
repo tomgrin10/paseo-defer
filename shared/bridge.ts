@@ -10,6 +10,11 @@ export interface DeferOffer {
   text: string;
   /** Preselects the timing controls; null leaves whatever they were showing. */
   trigger: Trigger | null;
+  /**
+   * The text was taken from the session's own prompt box, so on a host that
+   * lets Defer clear that box it is emptied once the message is queued.
+   */
+  fromComposer?: boolean;
 }
 
 export interface ClientBridge {
