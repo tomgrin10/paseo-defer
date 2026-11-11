@@ -318,7 +318,7 @@ try {
     media.resize(1440);
     check(phone.livePills().length === 0, "phone → desktop: every pill is removed in the same tick");
     check(actionOf(PhoneItem(HOST_PROPS)) !== undefined, "phone → desktop: the toolbar control draws");
-    check(PhoneItem(PHONE_PROPS) === null, "the host's own compact layout alone also hides the item");
+    check(actionOf(PhoneItem(PHONE_PROPS)) !== undefined, "a host-only compact signal leaves the item drawn (sheet fallback), never a session with no control");
 
     media.resize(390);
     check(livePillIds(phone) === live, "desktop → phone: the pills come back, one per live session");
@@ -335,6 +335,33 @@ try {
     check(phone.removedItems === 0, "the item is never re-registered by a resize");
 
     stopPhone();
+
+    // An open dialog does not survive a trip through phone width: it would
+    // otherwise pop open by itself when the window widens again.
+    media.matches = true;
+    const dialogHost = createHost({ agents: () => agents, items: () => queue, pillMode: () => "always" });
+    const stopDialog = graph.contributeClient(dialogHost.client);
+    await wait(50);
+    const DialogItem = dialogHost.items[0].Component;
+    composer = { context: "agent", agent: { metadata: { [TAG]: "agent-1" } } };
+    const modalOpen = (tree) => [...walk(tree)].find((node) => node.props && "open" in node.props && "onOpenChange" in node.props)?.props.open;
+    const plainEffect = react.useEffect;
+    const plainState = react.useState;
+    react.useEffect = (fn) => void fn(); // lets the item claim its dialog
+    const self = Symbol("defer-item"); // one mounted item: a stable identity across renders
+    react.useState = (initial) => (typeof initial === "function" && String(initial).includes("defer-item") ? [self, () => undefined] : plainState(initial));
+    try {
+      actionOf(DialogItem(HOST_PROPS)).props.onPress({});
+      check(modalOpen(DialogItem(HOST_PROPS)) === true, "desktop: pressing the control opens its dialog");
+      media.resize(390);
+      media.resize(1440);
+      check(modalOpen(DialogItem(HOST_PROPS)) === false, "an open dialog is closed by a trip through phone width, not reopened on widening");
+    } finally {
+      react.useEffect = plainEffect;
+      react.useState = plainState;
+    }
+    stopDialog();
+    media.matches = false;
     check(media.listeners.size === 0, "cleanup releases the media query listener");
     check(phone.livePills().length === 0 && phone.removedItems === 1, "cleanup removes the pills and the item");
 

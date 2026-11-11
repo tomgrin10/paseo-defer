@@ -123,6 +123,12 @@ function createDialogStore() {
       owners.set(agentId, self);
       emit();
     },
+    /** Shuts every open dialog, e.g. when the window turns into a phone. */
+    closeAll() {
+      if (open.size === 0) return;
+      open.clear();
+      emit();
+    },
     release(agentId: string, self: symbol) {
       if (owners.get(agentId) !== self) return;
       owners.delete(agentId);
@@ -133,6 +139,12 @@ function createDialogStore() {
 
 export function createDeferComposerItem(deps: ComposerItemDeps): ComponentType<PluginHostProps> {
   const dialogs = createDialogStore();
+  // A window that turns into a phone hides the item but keeps it mounted, so
+  // a dialog left open would pop back by itself when the window widens again.
+  // Closed once here rather than per item, so it can't depend on render order.
+  deps.subscribeCompact(() => {
+    if (deps.compact()) dialogs.closeAll();
+  });
 
   /**
    * The control's icon: a plain clock while nothing waits, then the timer glyph
@@ -195,10 +207,12 @@ export function createDeferComposerItem(deps: ComposerItemDeps): ComponentType<P
 
     if (agentId === null) return null;
     // A phone keeps the pill above the composer instead (see `contributeClient`).
-    // Either signal is enough: the entrypoint's, which the pills follow, and the
-    // host's own, which decides whether this item would land in the overflow
-    // sheet. Both read the same breakpoint, so neither shows both controls.
-    if (phone || props.layout.compact) return null;
+    // Gated on the entrypoint's signal alone, the one the pills follow, so
+    // exactly one of the two is ever on screen. On web it is the host's own
+    // media query. If a native host ever says compact while `Dimensions` does
+    // not, the item falls back to the overflow sheet (hard to find, but there)
+    // rather than leaving the session with no Defer control at all.
+    if (phone) return null;
     // "Only while messages wait": no control on a session with nothing queued,
     // unless its dialog is open (queueing from it must not unmount it mid-way).
     if (mode === "waiting" && items.length === 0 && !open) return null;
