@@ -151,6 +151,34 @@ What to assert, in order:
 
 Check both a light and a dark theme, and a narrow window for the compact layout. Screenshot anything visual.
 
+## Release notes
+
+Every GitHub release, betas included, shows real notes in one shape across Tom's plugins. `scripts/release-notes.mjs`
+(identical in each repo; keep the copies in sync) builds the body and the publish workflow creates the release with it:
+
+```
+<summary or "## What's new in X.Y.Z-beta.N">
+
+### New        what a user can now do
+### Improved   what got better
+### Fixed      what stopped going wrong
+
+## Install     the command for that channel, the Paseo minimum
+```
+
+- **Betas** are generated: the titles of the PRs merged since the previous tag, grouped by their prefix (`feat` is New,
+  `fix` is Fixed, anything else user-visible is Improved). `docs`, `chore`, `ci`, `test`, `refactor` and `build`
+  PRs, bots, merge lines and raw commit text never appear. So write PR titles as a sentence a user can read:
+  `fix: remember which Follow-up plugin id answered`. No PR numbers, no em dashes.
+- **Stable and rc** are curated: add `release-notes/<version>.md` (an rc uses its final version's file) before tagging. One
+  summary sentence, then `### New`, `### Improved`, `### Fixed` with plain-words bullets for the person using the plugin,
+  grouped by what they get and merged across every beta since the last stable. Omit empty groups. The publish workflow
+  runs `node scripts/release-notes.mjs --check <tag>` first and fails a stable or rc tag that has no file, before anything
+  is published.
+- Releases that already exist: edit the body with `gh release edit <tag> --notes-file <file>`. Never touch the tag, assets
+  or the prerelease/latest flags. In-app What's new popups stay major-only; this is GitHub only.
+- `node --test scripts/release-notes.test.mjs` covers the generator and runs in `verify`.
+
 ## Create a release
 
 - Releases need Tom's manual permission. Features and fixes ship as betas (`X.Y.Z-beta.N`, npm `beta` tag) by default. A stable version, npm `latest`, or a hotfix needs Tom's explicit OK for that exact version before it is tagged; never infer it from a plan. For this directory-installed plugin, installing merged main on Tom's VM counts as a beta.

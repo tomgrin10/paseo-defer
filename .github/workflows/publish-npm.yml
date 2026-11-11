@@ -47,6 +47,11 @@ jobs:
         run: |
           package_version="$(node -p "require('./package.json').version")"
           test "$RELEASE_TAG" = "v$package_version"
+      # A stable or rc tag needs curated notes (release-notes/<version>.md) before anything is published.
+      - name: Require curated release notes
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: node scripts/release-notes.mjs --check "$RELEASE_TAG"
       - name: Verify npm trusted publishing authorization
         run: |
           node --input-type=module <<'JS'
@@ -112,3 +117,36 @@ jobs:
           // Runs on the retry path too: the dist-tag must point here and a prerelease must never be latest.
           console.log(`Registry verified: ${spec} is ${await waitForDistTags(pkg.name, pkg.version)}.`);
           JS
+
+  release:
+    name: Create GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - name: Publish release notes after npm verification
+        run: |
+          if gh release view "$RELEASE_TAG" --json tagName > /dev/null 2>&1; then
+            exit 0
+          fi
+          # A version with a prerelease part is a GitHub prerelease and never "Latest".
+          case "$RELEASE_TAG" in
+            *-*) channel=(--prerelease --latest=false) ;;
+            *) channel=(--latest) ;;
+          esac
+          node scripts/release-notes.mjs "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "$(node -p "require('./package.json').name") $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" "${channel[@]}"
