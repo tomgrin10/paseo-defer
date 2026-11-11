@@ -16,9 +16,14 @@ import { DeferPopoverBody } from "./popover";
  *
  * Paseo draws the control itself: Defer renders the host's own `Action`, an
  * icon in the toolbar when the composer has room and a titled row in its
- * overflow sheet when it does not (always, on a phone). A composer item gets no
- * anchored popover, so the press opens Paseo's `Modal` (a dialog on desktop, a
- * bottom sheet on a phone) holding the same content the pill's popover had.
+ * overflow sheet when it does not. A composer item gets no anchored popover, so
+ * the press opens Paseo's `Modal` holding the same content the pill's popover
+ * had.
+ *
+ * On a phone Paseo puts every composer item in the overflow sheet behind the
+ * model button, where Defer is hard to find, so there the item draws nothing
+ * and the pill above the composer stays Defer's control (`client/form-factor.ts`
+ * holds the host's rule; `contributeClient` swaps the two live).
  *
  * A composer is not told which agent it belongs to, so Defer tags every live
  * session's metadata with its own id (`AGENT_TAG`, see `tagSessions` in
@@ -70,6 +75,10 @@ export interface ComposerItemDeps {
   items(agentId: string): readonly Deferred[];
   pillMode(): PillMode;
   openQueue(): void;
+  /** Fires when the phone/desktop form factor flips. */
+  subscribeCompact(listener: () => void): () => void;
+  /** Whether the app is laid out for a phone, where the pill is Defer's control instead. */
+  compact(): boolean;
 }
 
 const NO_ITEMS: readonly Deferred[] = [];
@@ -160,6 +169,7 @@ export function createDeferComposerItem(deps: ComposerItemDeps): ComponentType<P
     const readOwner = useCallback(() => (key === "" ? undefined : dialogs.owner(key)), [key]);
     const owner = useSyncExternalStore(dialogs.subscribe, readOwner, readOwner);
     const [self] = useState(() => Symbol("defer-item"));
+    const phone = useSyncExternalStore(deps.subscribeCompact, deps.compact, deps.compact);
 
     // Claim the dialog when nobody holds it (first mount, or the owner left);
     // release it only when this item unmounts or moves to another session.
@@ -176,19 +186,19 @@ export function createDeferComposerItem(deps: ComposerItemDeps): ComponentType<P
       if (key !== "") dialogs.setOpen(key, true);
     }, [key]);
     const [editing, setEditing] = useState(false);
-    const compact = props.layout.compact;
     const close = useCallback(() => {
       if (key === "") return;
       dialogs.setOpen(key, false);
       setEditing(false);
-      // On a phone the control lives in the composer's overflow sheet, which
-      // stays open under the dialog. Focusing the composer dismisses the host's
-      // overlays, so closing Defer lands back in the composer, not the sheet.
-      if (compact) void composer.focus?.().catch(() => undefined);
-    }, [compact, composer, key]);
+    }, [key]);
     const openQueue = useCallback(() => deps.openQueue(), []);
 
     if (agentId === null) return null;
+    // A phone keeps the pill above the composer instead (see `contributeClient`).
+    // Either signal is enough: the entrypoint's, which the pills follow, and the
+    // host's own, which decides whether this item would land in the overflow
+    // sheet. Both read the same breakpoint, so neither shows both controls.
+    if (phone || props.layout.compact) return null;
     // "Only while messages wait": no control on a session with nothing queued,
     // unless its dialog is open (queueing from it must not unmount it mid-way).
     if (mode === "waiting" && items.length === 0 && !open) return null;
