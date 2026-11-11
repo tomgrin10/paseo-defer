@@ -22,7 +22,7 @@ paseo plugin install paseo-defer
 
 ## Use
 
-Write your message, then press **Defer**: on Paseo 0.16 it is the timer button in the session's composer toolbar (on a phone, a row in the composer's sheet, opened from the model button); on older Paseo it is the pill above the message box. Or choose **Defer a message** from ⌘K / Ctrl+K). Defer takes what you typed. On Paseo 0.16 it empties the prompt box once the message is queued (unless you changed the box in the meantime); on older Paseo it copies the text, so clear the prompt box afterwards. Pick `15m`, `1h` or `3h`, **In…** for any wait up to 30 days, **At…** for a local time, or **Session reset**. The line under the options says exactly when it will send. You can also schedule straight from the composer:
+Write your message, then press **Defer**: on Paseo 0.16 it is the clock button in the session's composer toolbar; on a phone (a window under 600px wide) and on older Paseo it is the pill above the message box. Or choose **Defer a message** from ⌘K / Ctrl+K). Defer takes what you typed. On Paseo 0.16 it empties the prompt box once the message is queued (unless you changed the box in the meantime); on older Paseo it copies the text, so clear the prompt box afterwards. Pick `15m`, `1h` or `3h`, **In…** for any wait up to 30 days, **At…** for a local time, or **Session reset**. The line under the options says exactly when it will send. You can also schedule straight from the composer:
 
 ```text
 /defer 2h ship the release notes
@@ -32,7 +32,7 @@ Write your message, then press **Defer**: on Paseo 0.16 it is the timer button i
 
 ![Typing a message, pressing the Defer pill, choosing 1h and Defer: a countdown card appears in the chat and the pill shows the next send time; +10m then pushes it back](docs/media/defer-flow.gif)
 
-- **On Paseo 0.16 the composer button shows the queue in its glyph and tooltip.** The timer glyph turns bright and drains toward the next send, and the tooltip (the sheet row on a phone) reads `Defer · 2 waiting · next 4:42 PM`. On older Paseo, **the pill shows the next send.** It counts down inside the hour (`in 47m`), shows the clock after that (`4:42 PM`), and leads with the count when more are waiting (`2 · 4:42 PM`). Its timer drains as the time gets closer.
+- **On Paseo 0.16 the composer button shows the queue in its glyph and tooltip.** The timer glyph turns bright and drains toward the next send, and the tooltip reads `Defer · 2 waiting · next 4:42 PM`. On a phone and on older Paseo, **the pill shows the next send.** It counts down inside the hour (`in 47m`), shows the clock after that (`4:42 PM`), and leads with the count when more are waiting (`2 · 4:42 PM`). Its timer drains as the time gets closer.
 - **Each queued message sits in its chat** as a card with the send time and a live countdown, plus **+10m**, **Send now**, **Edit** and **Cancel**. The card goes away once the message is sent; the sent message carries a **Deferral details** attachment with the scheduled and actual send times. If a send fails, the card says why and offers **Send again**.
 - **Deferred** in the sidebar lists every queued message by when it goes out (Due now, Today, Tomorrow, At session reset), with **Recent activity** underneath. **New message** writes to any session.
 

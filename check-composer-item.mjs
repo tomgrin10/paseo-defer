@@ -10,6 +10,10 @@
  *   written to its metadata, once, and never when it already carries it;
  * - the item draws nothing in a draft, on New workspace, or for an untagged
  *   agent, and honours `pillMode`;
+ * - a phone (Paseo's own compact rule: below 600px, followed live through
+ *   `matchMedia("(min-width: 600px)")`, or `Dimensions` on native) keeps the
+ *   pills and the item draws nothing, so Defer never lands in the composer's
+ *   overflow sheet and never shows twice, across any number of resizes;
  * - the saved mode is in place when the queue read is announced. The item only
  *   re-reads on that announcement, so marking the queue read after it left an
  *   "Every session" control hidden until the next poll (found in the 0.16
@@ -58,7 +62,7 @@ const ACTION = function HostAction() { return null; };
 /** The composer the item is rendered in; each test sets it. */
 let composer = { context: "agent", agent: { metadata: {} } };
 
-function stubs({ composerApi = true } = {}) {
+function stubs({ composerApi = true, dimensions } = {}) {
   return {
     react,
     "react/jsx-runtime": {
@@ -66,7 +70,7 @@ function stubs({ composerApi = true } = {}) {
       jsx: (type, props) => ({ type, props }),
       jsxs: (type, props) => ({ type, props }),
     },
-    "react-native": { View: "View", Text: "Text", Pressable: "Pressable" },
+    "react-native": { View: "View", Text: "Text", Pressable: "Pressable", ...(dimensions ? { Dimensions: dimensions } : {}) },
     "@tanstack/react-query": {},
     "@getpaseo/plugin": { defineRpc: (d) => d },
     "@getpaseo/plugin/client": composerApi ? { useComposer: () => composer } : {},
@@ -130,6 +134,8 @@ function deferred(id, agentId, dueInMs) {
 /** A 0.16 host: observed agents, metadata writes, composer items. */
 function createHost({ agents, items, pillMode, withItems = true }) {
   const host = { pills: [], items: [], removedItems: 0, writes: [], observer: null };
+  /** Pills registered and not removed since. */
+  host.livePills = () => host.pills.filter((pill) => !pill.removed);
   const snapshotOf = (list) => ({ entries: list.map((agent) => ({ agent })), pageInfo: { hasMore: false, nextCursor: null } });
   host.client = {
     paseo: {
@@ -165,8 +171,14 @@ function createHost({ agents, items, pillMode, withItems = true }) {
     openScreen() {},
     openPanel() {},
     addComposerPill(contribution) {
-      host.pills.push(contribution);
-      return { update() {}, remove() {} };
+      const entry = { ...contribution, removed: false };
+      host.pills.push(entry);
+      return {
+        update() {},
+        remove() {
+          entry.removed = true;
+        },
+      };
     },
     ...(withItems
       ? {
@@ -262,6 +274,142 @@ try {
   check(oldHost.pills.length > 0, "without useComposer/Action the pills stay");
   check(oldHost.writes.length === 0, "the pill path writes no metadata");
   stopOld();
+
+  // ---- Phones keep the pill: the host's compact rule, followed live. ----
+  const media = {
+    matches: false,
+    listeners: new Set(),
+    addEventListener(type, listener) {
+      if (type === "change") this.listeners.add(listener);
+    },
+    removeEventListener(type, listener) {
+      if (type === "change") this.listeners.delete(listener);
+    },
+    resize(width) {
+      const next = width >= 600;
+      if (next === this.matches) return;
+      this.matches = next;
+      for (const listener of [...this.listeners]) listener({ matches: next });
+    },
+  };
+  const queries = [];
+  globalThis.matchMedia = (query) => {
+    queries.push(query);
+    return media;
+  };
+  try {
+    const live = agents.filter((agent) => agent.status !== "closed").map((agent) => agent.id).sort().join(",");
+    const livePillIds = (h) => h.livePills().map((pill) => pill.agentId).sort().join(",");
+    const PHONE_PROPS = { ...HOST_PROPS, layout: { compact: true, platform: "web" } };
+
+    media.matches = false; // 390px
+    const phone = createHost({ agents: () => agents, items: () => queue, pillMode: () => "always" });
+    const stopPhone = graph.contributeClient(phone.client);
+    await wait(50);
+    check(queries.length === 1 && queries[0] === "(min-width: 600px)", `the phone rule is the host's own breakpoint query (asked ${queries.join(" | ")})`);
+    check(livePillIds(phone) === live, `phone: a pill on every live session (got ${livePillIds(phone) || "none"})`);
+    check(phone.items.length === 1, "phone: the item stays registered, ready for a wider window");
+    const PhoneItem = phone.items[0].Component;
+    composer = { context: "agent", agent: { metadata: { [TAG]: "agent-1" } } };
+    check(PhoneItem(PHONE_PROPS) === null, "phone: the item draws nothing, so the overflow sheet has no Defer row");
+    check(PhoneItem(HOST_PROPS) === null, "phone by the entrypoint's rule: nothing drawn even before the host flips its own layout");
+    check(phone.writes.some((w) => w.id === "agent-1"), "phone: sessions are still tagged, so widening shows the item at once");
+
+    media.resize(1440);
+    check(phone.livePills().length === 0, "phone → desktop: every pill is removed in the same tick");
+    check(actionOf(PhoneItem(HOST_PROPS)) !== undefined, "phone → desktop: the toolbar control draws");
+    check(actionOf(PhoneItem(PHONE_PROPS)) !== undefined, "a host-only compact signal leaves the item drawn (sheet fallback), never a session with no control");
+
+    media.resize(390);
+    check(livePillIds(phone) === live, "desktop → phone: the pills come back, one per live session");
+    check(PhoneItem(HOST_PROPS) === null, "desktop → phone: the item draws nothing again");
+
+    // Repeated crossings and same-side resizes never double-register.
+    for (const width of [500, 700, 1200, 599, 600, 599, 320]) media.resize(width);
+    await wait(300);
+    check(livePillIds(phone) === live, `after many crossings: still exactly one pill per live session (got ${livePillIds(phone)})`);
+    const registrations = phone.pills.length;
+    media.resize(380);
+    media.resize(420);
+    check(phone.pills.length === registrations, "a resize that stays on one side registers nothing");
+    check(phone.removedItems === 0, "the item is never re-registered by a resize");
+
+    stopPhone();
+
+    // An open dialog does not survive a trip through phone width: it would
+    // otherwise pop open by itself when the window widens again.
+    media.matches = true;
+    const dialogHost = createHost({ agents: () => agents, items: () => queue, pillMode: () => "always" });
+    const stopDialog = graph.contributeClient(dialogHost.client);
+    await wait(50);
+    const DialogItem = dialogHost.items[0].Component;
+    composer = { context: "agent", agent: { metadata: { [TAG]: "agent-1" } } };
+    const modalOpen = (tree) => [...walk(tree)].find((node) => node.props && "open" in node.props && "onOpenChange" in node.props)?.props.open;
+    const plainEffect = react.useEffect;
+    const plainState = react.useState;
+    react.useEffect = (fn) => void fn(); // lets the item claim its dialog
+    const self = Symbol("defer-item"); // one mounted item: a stable identity across renders
+    react.useState = (initial) => (typeof initial === "function" && String(initial).includes("defer-item") ? [self, () => undefined] : plainState(initial));
+    try {
+      actionOf(DialogItem(HOST_PROPS)).props.onPress({});
+      check(modalOpen(DialogItem(HOST_PROPS)) === true, "desktop: pressing the control opens its dialog");
+      media.resize(390);
+      media.resize(1440);
+      check(modalOpen(DialogItem(HOST_PROPS)) === false, "an open dialog is closed by a trip through phone width, not reopened on widening");
+    } finally {
+      react.useEffect = plainEffect;
+      react.useState = plainState;
+    }
+    stopDialog();
+    media.matches = false;
+    check(media.listeners.size === 0, "cleanup releases the media query listener");
+    check(phone.livePills().length === 0 && phone.removedItems === 1, "cleanup removes the pills and the item");
+
+    // Waiting-only on a phone: the pill rule, unchanged.
+    const phoneWaiting = createHost({ agents: () => agents, items: () => queue, pillMode: () => "waiting" });
+    const stopWaiting = graph.contributeClient(phoneWaiting.client);
+    await wait(50);
+    check(livePillIds(phoneWaiting) === "agent-1", `phone, waiting-only: only the session with a queue has a pill (got ${livePillIds(phoneWaiting) || "none"})`);
+    stopWaiting();
+
+    // 0.15: no item API, so the pill at every width and no media listener.
+    media.matches = true;
+    queries.length = 0;
+    const legacy = createHost({ agents: () => agents, items: () => queue, pillMode: () => "always", withItems: false });
+    const stopLegacy = graph.contributeClient(legacy.client);
+    await wait(50);
+    check(livePillIds(legacy) === live && legacy.items.length === 0, "0.15 at desktop width: pills only, as today");
+    check(queries.length === 0 && media.listeners.size === 0, "0.15: the form factor is not even watched");
+    stopLegacy();
+  } finally {
+    delete globalThis.matchMedia;
+  }
+
+  // The native app: no matchMedia, so the window width from Dimensions.
+  const dims = {
+    width: 390,
+    listeners: new Set(),
+    get: () => ({ width: dims.width, height: 800 }),
+    addEventListener(type, listener) {
+      dims.listeners.add(listener);
+      return { remove: () => dims.listeners.delete(listener) };
+    },
+    rotate(width) {
+      dims.width = width;
+      for (const listener of [...dims.listeners]) listener();
+    },
+  };
+  const nativeGraph = await loadGraph({ dimensions: dims });
+  const native = createHost({ agents: () => agents, items: () => queue, pillMode: () => "always" });
+  const stopNative = nativeGraph.contributeClient(native.client);
+  await wait(50);
+  check(native.livePills().length === 2, "native phone: the pills");
+  dims.rotate(844);
+  check(native.livePills().length === 0, "native, rotated to a wide window: the item instead");
+  dims.rotate(390);
+  check(native.livePills().length === 2, "native, rotated back: the pills again");
+  stopNative();
+  check(dims.listeners.size === 0, "native: cleanup releases the Dimensions listener");
 } catch (error) {
   failures.push(error instanceof Error ? (error.stack ?? error.message) : String(error));
 }
@@ -269,5 +417,5 @@ try {
 console.log("Checking the 0.16 composer control...");
 for (const failure of failures) console.error(`  ✗ ${failure}`);
 if (failures.length > 0) process.exit(1);
-console.log("  ✓ composer item: replaces the pill on 0.16, tags sessions once, and draws only where it belongs");
+console.log("  ✓ composer item: replaces the pill on 0.16 desktop, a phone keeps the pill, tags sessions once, and draws only where it belongs");
 process.exit(0);

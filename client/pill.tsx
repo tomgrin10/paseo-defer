@@ -20,6 +20,7 @@ import { offerComposerDraft, readComposerDraft } from "./handoff";
 import { clearComposerIfUnchanged } from "./host-composer";
 import { DeferPopoverContent } from "./popover";
 import { AGENT_TAG, createDeferComposerItem, readAgentTag, supportsComposerItem } from "./composer-item";
+import { createFormFactor } from "./form-factor";
 import { notifyDeferChanged, onDeferChanged } from "./refresh";
 
 /**
@@ -448,8 +449,18 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
    * one composer item for every composer, so there is nothing to register per
    * session. The session set is still followed, to tag each live session with
    * its own id (`AGENT_TAG`), which is how an item learns whose composer it is.
+   *
+   * Except on a phone: there Paseo folds every composer item into the overflow
+   * sheet behind the model button, where Defer is hard to find, so a phone
+   * keeps the pill above the composer and the item draws nothing. "Phone" is
+   * the host's own compact rule (`client/form-factor.ts`), followed live, so a
+   * window resized or rotated across it swaps one for the other: pills are
+   * registered or removed here, and the item hides itself from the same source.
    */
-  const itemMode = supportsComposerItem(client);
+  const itemCapable = supportsComposerItem(client);
+  const formFactor = itemCapable ? createFormFactor() : null;
+  /** Whether the composer item, not the pill, is Defer's control right now. */
+  const itemMode = (): boolean => formFactor !== null && !formFactor.compact();
   /** Sessions this client has already tagged (or tried to), so each is written once. */
   const tagged = new Set<string>();
   /** Last-seen metadata tag per session, from the agent stream. */
@@ -559,7 +570,7 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     metadata?: Readonly<Record<string, unknown>> | null;
   }): { agentId: string; workspaceId: string } | null {
     const agentId = agent.id;
-    if (itemMode && typeof agentId === "string") tags.set(agentId, readAgentTag(agent.metadata));
+    if (itemCapable && typeof agentId === "string") tags.set(agentId, readAgentTag(agent.metadata));
     const workspaceId = agent.workspaceId;
     if (typeof agentId !== "string" || agentId === "") return null;
     // A closed session has no composer to put a pill on.
@@ -597,6 +608,7 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
 
   /** Whether this session should be carrying a pill right now. */
   function wanted(agentId: string): boolean {
+    if (itemMode()) return false;
     if (!sessions.has(agentId)) return false;
     return pillMode === "always" || store.items(agentId).length > 0;
   }
@@ -652,10 +664,10 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
   /** One pill per live session, mounted where that session's composer is. */
   function reconcilePills(): void {
     if (stopped) return;
-    if (itemMode) {
-      tagSessions();
-      return;
-    }
+    // Tagged on a phone too, so the item knows its session the moment the
+    // window widens. With the item in charge `wanted` is false everywhere, so
+    // the loop below takes down any pill a narrower window left registered.
+    if (itemCapable) tagSessions();
     for (const [agentId, entry] of [...registered]) {
       if (wanted(agentId) && sessions.get(agentId) === entry.workspaceId) {
         entry.pill.update?.({ label: labelFor(agentId), title: titleFor(agentId), visible: true });
@@ -780,7 +792,15 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     () => client.paseo.agents.subscribe(applyAgentUpdate),
   );
 
-  const removeItem = itemMode
+  // Only an actual crossing fires this, and it reconciles once, so a resize
+  // can neither register a pill twice nor loop. Before the first queue read
+  // that read reconciles instead, as for the agent stream.
+  const unsubscribeFormFactor =
+    formFactor?.subscribe(() => {
+      if (readQueue) reconcilePills();
+    }) ?? (() => undefined);
+
+  const removeItem = itemCapable && formFactor !== null
     ? (client as unknown as { addComposerItem(input: { id: string; Component: unknown }): () => void }).addComposerItem({
         id: "defer",
         Component: createDeferComposerItem({
@@ -789,6 +809,8 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
           // Until the saved mode is read, act as "waiting" so a waiting-only user never sees a flash.
           pillMode: () => (readQueue ? pillMode : "waiting"),
           openQueue: () => client.openScreen({ screenId: "overview" }),
+          subscribeCompact: (listener) => formFactor.subscribe(listener),
+          compact: () => formFactor.compact(),
         }),
       })
     : null;
@@ -804,6 +826,8 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     clearPreviewTimer();
     unsubscribeChanges();
     unsubscribeAgents();
+    unsubscribeFormFactor();
+    formFactor?.dispose();
     if (typeof removeItem === "function") removeItem();
     for (const entry of registered.values()) entry.pill.remove();
     registered.clear();
