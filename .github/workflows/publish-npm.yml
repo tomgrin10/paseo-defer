@@ -78,6 +78,7 @@ jobs:
           node --input-type=module <<'JS'
           import { spawnSync } from "node:child_process";
           import { readFileSync } from "node:fs";
+          import { expectedDistTag, waitForDistTags } from "./scripts/check-dist-tag.mjs";
           const pkg = JSON.parse(readFileSync("package.json", "utf8"));
           const spec = `${pkg.name}@${pkg.version}`;
           const run = args => spawnSync("npm", args, { encoding: "utf8" });
@@ -95,7 +96,7 @@ jobs:
             let error;
             try { error = JSON.parse(existing.stdout).error; } catch {}
             if (error?.code !== "E404") { process.stderr.write(existing.stderr); process.exit(1); }
-            const result = spawnSync("npm", ["publish", "--access", "public", "--registry", "https://registry.npmjs.org", "--loglevel", "verbose"], { stdio: "inherit" });
+            const result = spawnSync("npm", ["publish", "--access", "public", "--tag", expectedDistTag(pkg.version), "--registry", "https://registry.npmjs.org", "--loglevel", "verbose"], { stdio: "inherit" });
             if (result.status !== 0) {
               console.error("::error::npm publication failed. Check this package's GitHub trusted publisher repository, workflow filename, permissions, and environment in npm Settings.");
               process.exit(result.status || 1);
@@ -108,4 +109,6 @@ jobs:
             }
             if (!verified) { console.error(`::error::Registry verification failed for ${spec}.`); process.exit(1); }
           }
+          // Runs on the retry path too: the dist-tag must point here and a prerelease must never be latest.
+          console.log(`Registry verified: ${spec} is ${await waitForDistTags(pkg.name, pkg.version)}.`);
           JS
