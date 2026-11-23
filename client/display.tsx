@@ -5,11 +5,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { DEFAULT_SETTINGS, listDeferred, updateSettings, type PillMode } from "../shared/defer";
-import { displayPreferences, displayRpc } from "../shared/display";
+import { displayFeed, displayPreferences, displayRpc } from "../shared/display";
 import { pillLabel } from "../shared/format";
 import { errorText, useNow } from "./kit";
 import { useLiveQueue, type LiveQueue } from "./live";
 import { notifyDeferChanged } from "./refresh";
+import { watchSettings } from "./settings-feed/index";
 import { sidebarVisibility } from "./sidebar-visibility";
 import { tabular } from "./theme";
 
@@ -110,7 +111,7 @@ function DisplaySettings({ theme }: PluginSurfaceProps) {
   );
 }
 
-/** Settings notifications reach mounted screens; poll for changes made on other clients. */
+/** Push settings across clients; older hosts fall back to one read a minute. */
 export function contributeDisplay(client: PluginClientContext, live: LiveQueue) {
   function DeferredSidebarItem({ currentScreen, openScreen, theme }: PluginSidebarItemProps) {
     useLiveQueue(live);
@@ -143,29 +144,23 @@ export function contributeDisplay(client: PluginClientContext, live: LiveQueue) 
     onSelect({ openSettings }) { openSettings("display"); },
   });
   let disposed = false;
-  let pending = false;
   let generation = 0;
   const update = (values: Display) => { generation += 1; sidebar.set(values.showSidebar); };
   listeners.add(update);
-  const refresh = async () => {
-    if (disposed || pending) return;
-    pending = true;
-    const currentGeneration = generation;
-    try {
-      const result = await client.rpc(displayRpc.read, {});
-      if (!disposed && generation === currentGeneration && result.status === "ready") {
+  const feed = watchSettings({
+    client, contract: displayFeed,
+    revision: () => generation,
+    read: () => client.rpc(displayRpc.read, {}),
+    apply: result => {
+      if (!disposed && result.status === "ready") {
         const parsed = displayPreferences.schema.safeParse(result.values);
         if (parsed.success) { sidebar.set(parsed.data.showSidebar); for (const listener of listeners) listener(parsed.data); }
       }
-    } catch {
-      // Retain the last valid preference through temporary disconnects.
-    } finally { pending = false; }
-  };
-  void refresh();
-  const timer = setInterval(() => void refresh(), 5000);
+    },
+  });
   return () => {
     disposed = true;
-    clearInterval(timer);
+    feed.stop();
     listeners.delete(update);
     sidebar.dispose();
     removeSettings();

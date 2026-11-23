@@ -1,5 +1,6 @@
 import { contributeAgentTools } from "./server/native-tools";
-import { displayPreferences } from "./shared/display";
+import { registerSettingsFeed } from "./server/settings-feed/index";
+import { displayFeed, displayPreferences } from "./shared/display";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import {
   cancelDeferred,
@@ -32,7 +33,7 @@ export default function contribute(server: PluginServerContext) {
   const removeStarted = server.on("agent.turn_started", (_, { paseo }) => timeline.use(paseo));
   const removeEnded = server.on("agent.turn_ended", (_, { paseo }) => timeline.use(paseo));
   void labels.refresh();
-  server.registerSettings(displayPreferences);
+  const stopDisplayFeed = registerSettingsFeed(server, displayFeed, server.registerSettings(displayPreferences));
   server.handle(listDeferred, async ({ agentId, usageAgentId }, { paseo }) => {
     void timeline.use(paseo);
     const all = await store.list();
@@ -97,6 +98,7 @@ export default function contribute(server: PluginServerContext) {
   });
 
   return async () => {
+    stopDisplayFeed();
     const teardown = lifecycle.teardown;
     lifecycle.teardown = null;
     lifecycle.refreshLabels = null;

@@ -219,3 +219,5 @@ This repository is public, and so is everything built from it: npm packages, rel
 - **Found one already in the repo?** Fix it in a commit whose message doesn't quote the value (for example "replace a real name with a fictional one"), and tell the developer so they can decide whether history and npm need cleaning too.
 
 - A persistent per-item timeline error must never be retried on every refresh. Drop missing-agent journal rows and fingerprints; retry other unchanged payloads at most once a minute.
+
+- Display settings use the kit subscription feed, with a one-minute read only while unavailable. Release the feed on unload. Vendored `client/settings-feed` and `server/settings-feed` must match the pinned kit; edit the kit first.

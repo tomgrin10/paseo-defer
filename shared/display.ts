@@ -9,3 +9,10 @@ export const displayPreferences = defineSettings({
 });
 
 export const displayRpc = settingsRpc(displayPreferences.id);
+
+/** Plain contract keeps clients on older SDKs compatible. */
+export const displayFeed = {
+  name: "defer.display-feed",
+  input: z.object({}),
+  event: z.object({ status: z.string(), revision: z.string().optional(), values: z.unknown().optional(), error: z.string().optional() }),
+};
