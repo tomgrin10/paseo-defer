@@ -217,3 +217,5 @@ This repository is public, and so is everything built from it: npm packages, rel
 - **Output from real data stays local.** Logs, sample results and screenshots from a run on the developer's real setup don't go into a commit or PR as-is. Describe them, or swap every real value for a fictional one first.
 - **Commit only source.** Never commit symlinks, `node_modules`, or anything that points into the local machine. Before every commit, read `git diff --cached` for absolute paths and real names.
 - **Found one already in the repo?** Fix it in a commit whose message doesn't quote the value (for example "replace a real name with a fictional one"), and tell the developer so they can decide whether history and npm need cleaning too.
+
+- A persistent per-item timeline error must never be retried on every refresh. Drop missing-agent journal rows and fingerprints; retry other unchanged payloads at most once a minute.

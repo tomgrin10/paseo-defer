@@ -17,6 +17,7 @@ export class DeferredTimeline {
   private dirty = false;
   private stopped = false;
   private fingerprints = new Map<string, string>();
+  private retries = new Map<string, { fingerprint: string; at: number }>();
   error: string | null = null;
 
   constructor(private directory: string, private list: () => Promise<Deferred[]>) {}
@@ -90,6 +91,7 @@ export class DeferredTimeline {
     let failed = false;
     for (const row of [...rows]) {
       if (this.stopped) return;
+      let fingerprint: string | undefined;
       try {
         // Edits and cancellation can land during a slow append. Always use the latest queue.
         const item = (await this.list()).find(item => item.id === row.id);
@@ -99,12 +101,18 @@ export class DeferredTimeline {
           trigger: item.trigger, dueAt: item.dueAt, createdAt: item.createdAt, state: item.state as "pending" | "sending" | "failed",
           ...(item.state === "failed" ? { error: typeof item.error === "string" ? item.error.slice(0, 500) : null } : {}),
         } : { state: "settled" };
-        const fingerprint = JSON.stringify(data);
+        fingerprint = JSON.stringify(data);
+        const retry = this.retries.get(row.id);
+        if (retry?.fingerprint === fingerprint && Date.now() - retry.at < 60_000) {
+          failed = true;
+          continue;
+        }
         if (this.fingerprints.get(row.id) !== fingerprint) {
           await this.api!.agents.ref(row.agentId).timeline.append({
             type: "plugin", id: `deferred:${row.id}`, kind: DEFER_TIMELINE_KIND, version: 1, data,
           });
           this.fingerprints.set(row.id, fingerprint);
+          this.retries.delete(row.id);
           // Reconcile again if an RPC changed the queue while the append was in flight.
           const latest = (await this.list()).find(item => item.id === row.id);
           if (JSON.stringify(latest) !== JSON.stringify(item)) this.dirty = true;
@@ -114,9 +122,16 @@ export class DeferredTimeline {
           await this.writeJournal(rows);
           this.fingerprints.delete(row.id);
         }
-      } catch {
-        // A missing session or one failed append must not block other sessions.
-        failed = true;
+      } catch (error) {
+        if (error instanceof Error && /Unknown agent|Agent not found/i.test(error.message)) {
+          rows = rows.filter(entry => entry.id !== row.id);
+          await this.writeJournal(rows);
+          this.fingerprints.delete(row.id);
+          this.retries.delete(row.id);
+        } else {
+          if (fingerprint !== undefined) this.retries.set(row.id, { fingerprint, at: Date.now() });
+          failed = true;
+        }
       }
     }
     if (failed) throw new Error("Timeline reconciliation is incomplete.");
@@ -127,5 +142,6 @@ export class DeferredTimeline {
     await this.pending;
     this.api = null;
     this.fingerprints.clear();
+    this.retries.clear();
   }
 }

@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { instantiateBundle } from "./check-lib.mjs";
 import { createRequire } from "node:module";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -42,6 +42,15 @@ try {
   const second = reload.manager(); await second.use(reload.api); assert.equal(reload.world.calls.at(-1).data.state, "pending");
   reload.world.items = []; await second.refresh(); assert.deepEqual(reload.world.calls.at(-1).data, { state: "settled" });
 
+  const gone = fixture("gone"); gone.world.items[0].agentId = "gone"; gone.world.items[0].state = "failed";
+  await mkdir(gone.path, { recursive: true });
+  await writeFile(join(gone.path, "timeline-items.json"), JSON.stringify({ version: 1, rows: [{ id: "one", agentId: "gone" }] }));
+  let goneAttempts = 0;
+  const goneApi = { agents: { ref: () => ({ timeline: { append: async () => { goneAttempts++; throw new Error("Unknown agent 'gone'"); } } }) } };
+  const goneManager = gone.manager(); await goneManager.use(goneApi); await goneManager.refresh(); await goneManager.refresh();
+  assert.deepEqual(JSON.parse(await readFile(join(gone.path, "timeline-items.json"), "utf8")).rows, []);
+  assert.equal(goneManager.error, null); assert.ok(goneAttempts <= 1);
+
   const lost = fixture("lost-ack"); lost.world.fail = true; const owner = lost.manager();
   const logs = []; const original = console.error; console.error = text => logs.push(text);
   try { await owner.use(lost.api); await owner.refresh(); } finally { console.error = original; }
@@ -60,7 +69,13 @@ try {
   isolated.world.beforeAppend = row => { if (row.id === "deferred:one") throw new Error("session unavailable"); };
   const isolatedManager = isolated.manager(); await isolatedManager.use(isolated.api);
   assert.ok(isolatedManager.error); assert.ok(isolated.world.calls.some(row => row.id === "deferred:two"));
-  isolated.world.beforeAppend = null; await isolatedManager.refresh(); assert.equal(isolatedManager.error, null);
+  await isolatedManager.refresh();
+  assert.equal(isolated.world.calls.filter(row => row.id === "deferred:one").length, 1, "unchanged errors back off");
+  const realNow = Date.now; const retryAt = realNow();
+  try {
+    Date.now = () => retryAt + 60_001;
+    isolated.world.beforeAppend = null; await isolatedManager.refresh(); assert.equal(isolatedManager.error, null);
+  } finally { Date.now = realNow; }
   assert.equal(isolated.world.calls.filter(row => row.id === "deferred:two").length, 1);
 
   const stopping = fixture("stop-during-append"); let finish, entered;
