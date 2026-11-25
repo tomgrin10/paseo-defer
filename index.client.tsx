@@ -7,6 +7,7 @@ import type { PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/cl
 import { createLiveQueue } from "./client/live";
 import { DeferPanel } from "./client/panel";
 import { contributeClient } from "./client/pill";
+import { contributeRowBadge } from "./client/row-badge";
 import { DeferOverview } from "./client/surface";
 import { offerComposerDraft, offerDefer } from "./client/handoff";
 import { attachComposerHost } from "./client/host-composer";
@@ -76,11 +77,13 @@ export default function contribute(host: PluginClientContext) {
   contributePinnedTimeline(client);
 
   const removeDisplay = contributeDisplay(client, live);
+  const removeRowBadge = contributeRowBadge(client, live);
   const removeClient = contributeClient(client, live);
   return () => {
     visibility.dispose();
     detachComposer();
     removeDisplay();
+    removeRowBadge();
     for (const remove of removers) if (typeof remove === "function") void remove();
     return removeClient();
   };
