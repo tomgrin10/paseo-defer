@@ -470,6 +470,11 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
   /** Live sessions, agentId -> workspaceId. One pill each. */
   const sessions = new Map<string, string>();
   /**
+   * Every listed session's workspace, closed ones too, for the sidebar's
+   * workspace-row badge (`live.forWorkspace`). Read from the same stream.
+   */
+  const workspaceOf = new Map<string, string>();
+  /**
    * beta.1 returns a remover function. The documented descriptor API returns a
    * handle with update/remove. Normalize both while clients roll forward.
    */
@@ -573,6 +578,8 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     if (itemCapable && typeof agentId === "string") tags.set(agentId, readAgentTag(agent.metadata));
     const workspaceId = agent.workspaceId;
     if (typeof agentId !== "string" || agentId === "") return null;
+    if (typeof workspaceId === "string" && workspaceId !== "") workspaceOf.set(agentId, workspaceId);
+    else workspaceOf.delete(agentId);
     // A closed session has no composer to put a pill on.
     if (agent.status === "closed") return null;
     if (typeof workspaceId !== "string" || workspaceId === "") return null;
@@ -581,20 +588,28 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
 
   function drop(agentId: string): boolean {
     tags.delete(agentId);
+    workspaceOf.delete(agentId);
     return sessions.delete(agentId);
   }
 
   function applyAgentUpdate(update: AgentUpdate): void {
     if (stopped) return;
     if (update.kind === "remove") {
-      if (drop(update.agentId)) reconcilePills();
+      const removed = drop(update.agentId);
+      live?.placeAgents(workspaceOf);
+      if (removed) reconcilePills();
       return;
     }
     const place = placement(update.agent);
+    live?.placeAgents(workspaceOf);
     if (place === null) {
       // Reaches here for a session that just closed, which must lose its pill.
+      // It keeps its workspace: a message still waits for it there.
       const agentId = update.agent?.id;
-      if (typeof agentId === "string" && drop(agentId)) reconcilePills();
+      if (typeof agentId === "string") {
+        tags.delete(agentId);
+        if (sessions.delete(agentId)) reconcilePills();
+      }
       return;
     }
     // Agents upsert on every status change; only a placement change matters.
@@ -714,11 +729,13 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
 
   function replaceSessions(listed: AgentList): void {
     sessions.clear();
+    workspaceOf.clear();
     for (const entry of listed.entries) {
       const place = placement(entry.agent ?? {});
       if (place === null) continue;
       sessions.set(place.agentId, place.workspaceId);
     }
+    live?.placeAgents(workspaceOf);
     listedSessions = true;
   }
 
@@ -832,6 +849,8 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     for (const entry of registered.values()) entry.pill.remove();
     registered.clear();
     sessions.clear();
+    workspaceOf.clear();
+    live?.placeAgents(workspaceOf);
     store.hidePreview();
     store.replaceItems(new Map());
   };
