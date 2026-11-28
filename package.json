@@ -44,7 +44,7 @@
     "paseo-plugin-kit": "github:tomgrin10/paseo-plugin-kit#v0.4.0-beta.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "zod": "^4.4.3"
   }
 }
