@@ -40,3 +40,30 @@ test("hidden buttons preserve current descriptors, cover newly discovered worksp
   f.save({ [flag]: true });
   assert.equal(f.active.size, 0, "late preference changes cannot resurrect disposed buttons");
 });
+
+test("Paseo 0.16: the composer item follows the Composer button setting, and older hosts get no addComposerItem", () => {
+  let listener;
+  const source = ts.transpileModule(readFileSync(new URL("./client/button-visibility.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const module = { exports: {} };
+  new Function("require", "module", "exports", source)(() => ({ subscribeDisplay(fn) { listener = fn; return () => { listener = undefined; }; } }), module, module.exports);
+  const save = values => listener?.({ enable_header_button: true, enable_composer_button: true, ...values });
+  const mounted = new Set();
+  const host = { addHeaderButton() {}, addComposerPill() {}, addComposerItem(input) { assert.ok(!mounted.has(input.id), "an item is never registered twice"); mounted.add(input.id); return () => mounted.delete(input.id); } };
+  const adapted = module.exports.withButtonVisibility(host);
+  const remove = adapted.client.addComposerItem({ id: "defer", Component() {} });
+  assert.ok(mounted.has("defer"));
+  save({ enable_composer_button: false });
+  assert.equal(mounted.size, 0, "Off removes the composer item");
+  save({ enable_composer_button: true });
+  save({ enable_composer_button: true });
+  assert.ok(mounted.has("defer"), "turning it back on restores it once");
+  remove();
+  assert.equal(mounted.size, 0);
+  save({ enable_composer_button: true });
+  assert.equal(mounted.size, 0, "a removed item stays removed");
+  adapted.dispose();
+
+  const old = module.exports.withButtonVisibility({ addHeaderButton() {}, addComposerPill() {} });
+  assert.equal(typeof old.client.addComposerItem, "undefined", "a 0.15 host is not given a composer item API");
+  old.dispose();
+});

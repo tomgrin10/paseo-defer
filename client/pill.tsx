@@ -17,7 +17,10 @@ import type { LiveQueue } from "./live";
 import { IconSwap } from "./motion";
 import { canObserveAgents, followAgents, type AgentList, type AgentUpdate } from "./agents";
 import { offerComposerDraft, readComposerDraft } from "./handoff";
+import { clearComposerIfUnchanged } from "./host-composer";
 import { DeferPopoverContent } from "./popover";
+import { AGENT_TAG, createDeferComposerItem, readAgentTag, supportsComposerItem } from "./composer-item";
+import { createFormFactor } from "./form-factor";
 import { notifyDeferChanged, onDeferChanged } from "./refresh";
 
 /**
@@ -441,9 +444,36 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     );
   }
 
+  /**
+   * Paseo 0.16 draws Defer inside the composer toolbar instead of as a pill:
+   * one composer item for every composer, so there is nothing to register per
+   * session. The session set is still followed, to tag each live session with
+   * its own id (`AGENT_TAG`), which is how an item learns whose composer it is.
+   *
+   * Except on a phone: there Paseo folds every composer item into the overflow
+   * sheet behind the model button, where Defer is hard to find, so a phone
+   * keeps the pill above the composer and the item draws nothing. "Phone" is
+   * the host's own compact rule (`client/form-factor.ts`), followed live, so a
+   * window resized or rotated across it swaps one for the other: pills are
+   * registered or removed here, and the item hides itself from the same source.
+   */
+  const itemCapable = supportsComposerItem(client);
+  const formFactor = itemCapable ? createFormFactor() : null;
+  /** Whether the composer item, not the pill, is Defer's control right now. */
+  const itemMode = (): boolean => formFactor !== null && !formFactor.compact();
+  /** Sessions this client has already tagged (or tried to), so each is written once. */
+  const tagged = new Set<string>();
+  /** Last-seen metadata tag per session, from the agent stream. */
+  const tags = new Map<string, string | null>();
+
   const DeferPill = createDeferPill(store, openPanelFor, quickDefer);
   /** Live sessions, agentId -> workspaceId. One pill each. */
   const sessions = new Map<string, string>();
+  /**
+   * Every listed session's workspace, closed ones too, for the sidebar's
+   * workspace-row badge (`live.forWorkspace`). Read from the same stream.
+   */
+  const workspaceOf = new Map<string, string>();
   /**
    * beta.1 returns a remover function. The documented descriptor API returns a
    * handle with update/remove. Normalize both while clients roll forward.
@@ -501,6 +531,7 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     const text = readComposerDraft(agentId);
     if (text.trim() === "") throw new Error("There is nothing in the prompt box to defer.");
     const { item } = await client.rpc(createDeferred, { agentId, text, trigger });
+    clearComposerIfUnchanged(agentId, text);
     if (!stopped) {
       clearPreviewTimer();
       store.hidePreview(agentId);
@@ -541,10 +572,14 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     id?: string;
     workspaceId?: string | null;
     status?: string;
+    metadata?: Readonly<Record<string, unknown>> | null;
   }): { agentId: string; workspaceId: string } | null {
     const agentId = agent.id;
+    if (itemCapable && typeof agentId === "string") tags.set(agentId, readAgentTag(agent.metadata));
     const workspaceId = agent.workspaceId;
     if (typeof agentId !== "string" || agentId === "") return null;
+    if (typeof workspaceId === "string" && workspaceId !== "") workspaceOf.set(agentId, workspaceId);
+    else workspaceOf.delete(agentId);
     // A closed session has no composer to put a pill on.
     if (agent.status === "closed") return null;
     if (typeof workspaceId !== "string" || workspaceId === "") return null;
@@ -552,20 +587,29 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
   }
 
   function drop(agentId: string): boolean {
+    tags.delete(agentId);
+    workspaceOf.delete(agentId);
     return sessions.delete(agentId);
   }
 
   function applyAgentUpdate(update: AgentUpdate): void {
     if (stopped) return;
     if (update.kind === "remove") {
-      if (drop(update.agentId)) reconcilePills();
+      const removed = drop(update.agentId);
+      live?.placeAgents(workspaceOf);
+      if (removed) reconcilePills();
       return;
     }
     const place = placement(update.agent);
+    live?.placeAgents(workspaceOf);
     if (place === null) {
       // Reaches here for a session that just closed, which must lose its pill.
+      // It keeps its workspace: a message still waits for it there.
       const agentId = update.agent?.id;
-      if (typeof agentId === "string" && drop(agentId)) reconcilePills();
+      if (typeof agentId === "string") {
+        tags.delete(agentId);
+        if (sessions.delete(agentId)) reconcilePills();
+      }
       return;
     }
     // Agents upsert on every status change; only a placement change matters.
@@ -579,6 +623,7 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
 
   /** Whether this session should be carrying a pill right now. */
   function wanted(agentId: string): boolean {
+    if (itemMode()) return false;
     if (!sessions.has(agentId)) return false;
     return pillMode === "always" || store.items(agentId).length > 0;
   }
@@ -609,9 +654,35 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     return { remove: () => handle.remove(), update: (patch) => handle.update(patch) };
   }
 
+  /**
+   * Writes `AGENT_TAG` onto every live session that does not carry its own id
+   * yet. Once per session per client, and never for a session that has it, so
+   * a settled host sees no writes at all.
+   */
+  function tagSessions(): void {
+    for (const agentId of sessions.keys()) {
+      if (tags.get(agentId) === agentId || tagged.has(agentId)) continue;
+      tagged.add(agentId);
+      try {
+        const ref = client.paseo.agents.ref(agentId) as unknown as {
+          setMetadata?: (patch: Record<string, string>) => Promise<void>;
+        };
+        void ref.setMetadata?.({ [AGENT_TAG]: agentId })?.catch((error: unknown) => {
+          console.warn("[defer] could not tag a session for the composer control", String(error));
+        });
+      } catch (error) {
+        console.warn("[defer] could not tag a session for the composer control", String(error));
+      }
+    }
+  }
+
   /** One pill per live session, mounted where that session's composer is. */
   function reconcilePills(): void {
     if (stopped) return;
+    // Tagged on a phone too, so the item knows its session the moment the
+    // window widens. With the item in charge `wanted` is false everywhere, so
+    // the loop below takes down any pill a narrower window left registered.
+    if (itemCapable) tagSessions();
     for (const [agentId, entry] of [...registered]) {
       if (wanted(agentId) && sessions.get(agentId) === entry.workspaceId) {
         entry.pill.update?.({ label: labelFor(agentId), title: titleFor(agentId), visible: true });
@@ -658,11 +729,13 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
 
   function replaceSessions(listed: AgentList): void {
     sessions.clear();
+    workspaceOf.clear();
     for (const entry of listed.entries) {
       const place = placement(entry.agent ?? {});
       if (place === null) continue;
       sessions.set(place.agentId, place.workspaceId);
     }
+    live?.placeAgents(workspaceOf);
     listedSessions = true;
   }
 
@@ -694,8 +767,10 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
         if (existing === undefined) byAgent.set(item.agentId, [item]);
         else existing.push(item);
       }
-      store.replaceItems(byAgent);
+      // Marked read before the store announces the change: the composer item
+      // reads the mode on that announcement and must see the saved one.
       readQueue = true;
+      store.replaceItems(byAgent);
       reconcilePills();
     } catch (error) {
       // A failed read must not kill the entrypoint: the interval retries, and
@@ -734,6 +809,29 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     () => client.paseo.agents.subscribe(applyAgentUpdate),
   );
 
+  // Only an actual crossing fires this, and it reconciles once, so a resize
+  // can neither register a pill twice nor loop. Before the first queue read
+  // that read reconciles instead, as for the agent stream.
+  const unsubscribeFormFactor =
+    formFactor?.subscribe(() => {
+      if (readQueue) reconcilePills();
+    }) ?? (() => undefined);
+
+  const removeItem = itemCapable && formFactor !== null
+    ? (client as unknown as { addComposerItem(input: { id: string; Component: unknown }): () => void }).addComposerItem({
+        id: "defer",
+        Component: createDeferComposerItem({
+          subscribe: (listener) => store.subscribe(listener),
+          items: (agentId) => store.items(agentId),
+          // Until the saved mode is read, act as "waiting" so a waiting-only user never sees a flash.
+          pillMode: () => (readQueue ? pillMode : "waiting"),
+          openQueue: () => client.openScreen({ screenId: "overview" }),
+          subscribeCompact: (listener) => formFactor.subscribe(listener),
+          compact: () => formFactor.compact(),
+        }),
+      })
+    : null;
+
   const unsubscribeChanges = onDeferChanged(scheduleSync);
   const timer = setInterval(() => void sync(), POLL_MS);
   void sync();
@@ -745,9 +843,14 @@ export function contributeClient(client: PluginClientContext, live?: LiveQueue):
     clearPreviewTimer();
     unsubscribeChanges();
     unsubscribeAgents();
+    unsubscribeFormFactor();
+    formFactor?.dispose();
+    if (typeof removeItem === "function") removeItem();
     for (const entry of registered.values()) entry.pill.remove();
     registered.clear();
     sessions.clear();
+    workspaceOf.clear();
+    live?.placeAgents(workspaceOf);
     store.hidePreview();
     store.replaceItems(new Map());
   };

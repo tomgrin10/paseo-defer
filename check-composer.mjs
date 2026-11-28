@@ -168,14 +168,16 @@ const THEME = {
 const ENTRY = resolve(DIR, `.check-composer.${LOCALE}.entry.ts`);
 const ENTRY_SOURCE = `export { DeferComposer, DeferredRow, deferStyles } from "./client/composer";
 export { clockPlaceholder, describeInstant, formatClock, formatDuration, formatResetLabel, uses12HourClock } from "./shared/format";
-export { offerComposerDraft } from "./client/handoff";
+export { offerComposerDraft, offerDefer } from "./client/handoff";
+export { attachComposerHost } from "./client/host-composer";
 `;
 
 /** Records every RPC the composer makes, and answers them plausibly. */
-function createRpcLog() {
+function createRpcLog({ failCreate = false } = {}) {
   const calls = [];
   const useRpc = (contract) => async (input) => {
     calls.push({ name: contract.name, input });
+    if (contract.name === "defer.create" && failCreate) throw new Error("daemon unreachable");
     if (contract.name === "defer.create") {
       return {
         item: {
@@ -258,8 +260,35 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 
-async function harness({ editing = null, acceptComposerDraft = false, beforeMount, resetsAt = null, usedPct = null } = {}) {
-  const rpc = createRpcLog();
+/**
+ * Stands in for Paseo 0.16's `client.composers({ agentId })`: one live composer
+ * per known agent, recording every `setPrompt`.
+ */
+function createComposerHost(prompt) {
+  const composer = {
+    prompt,
+    sets: [],
+    setPrompt(text) {
+      this.sets.push(text);
+      this.prompt = text;
+    },
+  };
+  return {
+    composer,
+    host: { composers: ({ agentId }) => (agentId === "agent-1" ? [composer] : []) },
+  };
+}
+
+async function harness({
+  editing = null,
+  acceptComposerDraft = false,
+  beforeMount,
+  resetsAt = null,
+  usedPct = null,
+  composerHost = null,
+  failCreate = false,
+} = {}) {
+  const rpc = createRpcLog({ failCreate });
   const created = [];
   const saved = [];
   let editingItem = editing;
@@ -310,6 +339,7 @@ async function harness({ editing = null, acceptComposerDraft = false, beforeMoun
     acceptComposerDraft,
   });
 
+  if (composerHost !== null) graph.attachComposerHost(composerHost.host);
   // A press reads the composer and opens the panel, in that order, so an offer
   // made here is the one a real panel finds waiting for it.
   beforeMount?.(graph);
@@ -560,6 +590,63 @@ try {
     unasked.value("Message to defer") === "",
     "a view that was not opened from a composer is handed nothing",
   );
+  // --- Paseo 0.16: Defer clears the prompt box it took the text from ---
+  {
+    const offer = (graph) => graph.offerComposerDraft("agent-1");
+    composerDraft = "a stale persisted draft";
+    const live = createComposerHost("fix the flaky test");
+    const moved = await harness({ acceptComposerDraft: true, composerHost: live, beforeMount: offer });
+    check(
+      moved.value("Message to defer") === "fix the flaky test",
+      "on 0.16 the hand-over reads the live prompt, not the persisted draft store",
+    );
+    check(moved.text().includes("Defer clears it there once this is queued"), "on 0.16 the note says the prompt box will be cleared");
+    check(!moved.text().includes("Clear it there so it isn't sent twice"), "on 0.16 the user is not asked to clear the prompt box by hand");
+    check(live.composer.sets.length === 0, "nothing is cleared before the message is queued");
+    moved.press("Defer this message");
+    await settle();
+    check(moved.rpc.of("defer.create")[0]?.input.text === "fix the flaky test", "the taken text is what is queued");
+    check(live.composer.prompt === "" && live.composer.sets.join("|") === "", "queueing the taken text empties the prompt box once");
+
+    const typedSince = createComposerHost("fix the flaky test");
+    const raced = await harness({ acceptComposerDraft: true, composerHost: typedSince, beforeMount: offer });
+    typedSince.composer.prompt = "fix the flaky test, and the lint";
+    raced.press("Defer this message");
+    await settle();
+    check(raced.rpc.of("defer.create").length === 1, "a prompt box changed meanwhile still lets the message queue");
+    check(
+      typedSince.composer.sets.length === 0 && typedSince.composer.prompt === "fix the flaky test, and the lint",
+      "a prompt box the user changed meanwhile is left alone",
+    );
+
+    const failing = createComposerHost("fix the flaky test");
+    const failed = await harness({ acceptComposerDraft: true, composerHost: failing, failCreate: true, beforeMount: offer });
+    failed.press("Defer this message");
+    await settle();
+    check(failing.composer.sets.length === 0, "a failed defer never clears the prompt box");
+    check(failed.value("Message to defer") === "fix the flaky test", "a failed defer keeps the message in the Defer box");
+
+    const rewritten = createComposerHost("fix the flaky test");
+    const own = await harness({ acceptComposerDraft: true, composerHost: rewritten, beforeMount: offer });
+    own.type("Message to defer", "something else entirely");
+    own.press("Defer this message");
+    await settle();
+    check(rewritten.composer.sets.length === 0, "a message the user rewrote in the Defer box does not clear the prompt box");
+
+    // A `/defer ship it` line hands text over too, but not from the prompt box,
+    // even when the prompt box happens to hold the same words.
+    const slashHost = createComposerHost("ship it");
+    const slash = await harness({
+      acceptComposerDraft: true,
+      composerHost: slashHost,
+      beforeMount: (graph) => graph.offerDefer("agent-1", { text: "ship it", trigger: null }),
+    });
+    check(slash.value("Message to defer") === "ship it", "a /defer line's text is handed over");
+    slash.press("Defer this message");
+    await settle();
+    check(slashHost.composer.sets.length === 0, "a hand-over that did not come from the prompt box never clears it");
+  }
+
   // Send now: a waiting row offers it and passes its item up; a settled or
   // in-flight row offers no way to jump the queue.
   const sendNowLabel = "Send this deferred message now";

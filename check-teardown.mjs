@@ -58,11 +58,19 @@ writeFileSync(
   harnessPath,
   `const mod = require(${JSON.stringify(bundlePath)});
 const contribute = mod.default ?? mod;
-const plugin = new Proxy({}, { get: (_, name) => ["on", "before"].includes(name) ? () => () => {} : () => {} });
+const settingsListeners = new Set();
+const plugin = new Proxy({}, { get: (_, name) => {
+  if (name === "registerSettings") return () => ({
+    read: async () => ({ status: "ready", revision: "fixture", values: {} }),
+    subscribe(listener) { settingsListeners.add(listener); return () => settingsListeners.delete(listener); },
+  });
+  return ["on", "before"].includes(name) ? () => () => {} : () => {};
+} });
 (async () => {
   const cleanup = contribute(plugin);
   if (typeof cleanup !== "function") throw new Error("contribute() must return a cleanup function");
   await cleanup();
+  if (settingsListeners.size !== 0) throw new Error("Settings listeners leaked after cleanup");
   console.log("CLEANUP_RETURNED");
 })();
 `,

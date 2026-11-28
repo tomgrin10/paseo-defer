@@ -33,7 +33,7 @@ plugins (usage auto-resume, Session Guard) resume work after a limit; Defer send
 
 ## Operating Context
 
-- Entry points: the composer pill above each session's message box (popover), `/defer 2h <message>`
+- Entry points: on Paseo 0.16 a control in each session's composer toolbar (a dialog; a sheet on phones), on older Paseo the composer pill above the message box (popover), `/defer 2h <message>`
   in the composer, ⌘K **Defer a message**, the **Deferred** sidebar screen for every session, and the
   agent tools `defer_list_messages` / `defer_schedule_message`.
 - Each queued message gets a timeline row in its session's chat that updates in place and disappears
@@ -50,8 +50,10 @@ plugins (usage auto-resume, Session Guard) resume work after a limit; Defer send
   risk a duplicate.
 - Edit, Send now (reschedule to now, still idle-gated), Cancel (kept in history), Delete (timeline),
   Clear history.
-- Composer drafts are copied (not moved) into Defer on desktop and web; Paseo gives plugins no way
-  to clear the prompt box.
+- Composer drafts move into Defer on Paseo 0.16: the live prompt is read through the host's
+  composer controls and the prompt box is emptied once the message is queued, only while it still
+  holds exactly the taken text. On older Paseo they are copied (desktop and web only) and the user
+  clears the prompt box.
 - Paseo ≥ 0.14. No runtime dependencies. Versioned `queue.json` / `settings.json` under
   `$PASEO_HOME/plugin-data/defer`; schema changes need migrations.
 

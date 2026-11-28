@@ -1,4 +1,5 @@
 import { clientBridge, type DeferOffer } from "../shared/bridge";
+import { livePrompt } from "./host-composer";
 
 /**
  * Carries what is already typed in a session's composer into the Defer message
@@ -109,8 +110,14 @@ export function readDraftText(raw: string | null | undefined, agentId: string): 
   return best?.text ?? "";
 }
 
-/** The same read, against whatever storage this host actually has. */
+/**
+ * The session's composer text. On a host with composer controls (Paseo 0.16)
+ * that is the live prompt itself; elsewhere it is the same read as above,
+ * against whatever storage this host actually has.
+ */
 export function readComposerDraft(agentId: string): string {
+  const live = livePrompt(agentId);
+  if (live !== null) return live.trim() === "" ? "" : live;
   try {
     const storage = (globalThis as { localStorage?: { getItem(key: string): string | null } })
       .localStorage;
@@ -144,7 +151,7 @@ export function offerDefer(agentId: string, offer: DeferOffer): void {
  * asked for Defer.
  */
 export function offerComposerDraft(agentId: string): void {
-  offerDefer(agentId, { text: readComposerDraft(agentId), trigger: null });
+  offerDefer(agentId, { text: readComposerDraft(agentId), trigger: null, fromComposer: true });
 }
 
 /** Returns an unsubscribe function; safe to call more than once. */
@@ -156,11 +163,11 @@ export function onComposerDraftOffered(agentId: string, listener: Listener): () 
   // A press opens the panel, so the offer is normally made before there is
   // anything to hand it to.
   if (waiting !== null && waiting.agentId === agentId) {
-    const { text, trigger, at } = waiting;
+    const { agentId: _agent, at, ...offer } = waiting;
     waiting = null;
     if (Date.now() - at < OFFER_TTL_MS) {
       try {
-        listener({ text, trigger });
+        listener(offer);
       } catch {
         // Opening the box matters more than filling it.
       }
